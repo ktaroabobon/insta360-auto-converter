@@ -1,5 +1,7 @@
 # insta360-auto-converter
 
+[![CI](https://github.com/ktaroabobon/insta360-auto-converter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ktaroabobon/insta360-auto-converter/actions/workflows/ci.yml)
+
 Insta360 が出力する `.insv` / `.insp` ファイルを Google Drive から自動で取得して 360 動画 (mp4) / 写真 (jpg) に変換し、Google Photos と YouTube にアップロードする自動化パイプライン。
 
 ![image](https://user-images.githubusercontent.com/23136724/99520953-bfa20400-29ce-11eb-9d28-5244a4614edc.png)

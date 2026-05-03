@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同じ PR / ブランチで複数回 push されたら古いジョブをキャンセル
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (lint / syntax / lock)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up mise (Python + uv)
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: Verify uv.lock is up to date
+        run: uv lock --check
+
+      - name: Sync dependencies (incl. dev)
+        run: uv sync --frozen --group dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check apps scripts
+
+      - name: Syntax check (compileall)
+        run: uv run python -m compileall -q apps
+
+  shell:
+    name: Shell scripts (shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          severity: warning
+          scandir: ./scripts
+
+  envrc-diff:
+    name: .envrc.sample 整合性チェック
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy sample to .envrc and run diff check
+        # CI 上では direnv を使わないため、サンプルをそのまま .envrc として配置し
+        # scripts/check-env-diff.sh が「キー不足/余剰なし」を返すことを確認する。
+        run: |
+          cp .envrc.sample .envrc
+          bash scripts/check-env-diff.sh
