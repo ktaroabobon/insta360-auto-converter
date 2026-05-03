@@ -9,9 +9,16 @@ inclusion: always
 
 ## What this is
 
-Insta360 One X 等で撮影した raw ファイル (`.insv` 動画 / `.insp` 写真) を、Google Drive 上の作業フォルダに置くだけで自動的に
-360° 等距円筒 (equirectangular) 形式に stitching し、メタデータを注入し、Google Photos / YouTube に公開する
+Insta360 One X 等で撮影した raw ファイル (`.insv` 動画 / `.insp` 写真) を 360° 等距円筒 (equirectangular)
+形式に stitching し、メタデータを注入し、**Google Drive と Google Photos の両方** に公開する
 **ヘッドレスなバックグラウンドサービス**。Docker コンテナとして 24 時間稼働させる前提で設計されている。
+
+入力源として 2 モード:
+
+1. **Drive モード** (`apps/insta360_auto_converter.py`): Google Drive の作業フォルダを polling
+2. **ローカル入力モード** (`apps/local_auto_converter.py`): ホスト側のローカルディレクトリを polling
+
+YouTube への公開は **2026 年に廃止**。動画も写真と同様に Google Photos のアルバムに上げる。
 
 ## Core problem
 
@@ -38,15 +45,19 @@ Insta360 公式の 360 Studio で raw を変換すると以下の苦痛がある
 
 ## Core capabilities
 
-1. **取り込み**: Google Drive の指定 working folder 配下のサブフォルダを polling し、raw ペアを発見
-2. **タスク調停**: `.auto_processing` / `.auto_done` / `.auto_broken` フラグファイルを Drive 上に置くことで
+1. **取り込み (Drive モード)**: Google Drive の指定 working folder 配下のサブフォルダを polling し、raw ペアを発見
+2. **取り込み (ローカル入力モード)**: ホスト側 `$INSTA360_DATA_DIR/local-input/<アルバム名>/` 配下を polling し raw を発見
+3. **タスク調停 (Drive モード)**: `.auto_processing` / `.auto_done` / `.auto_broken` フラグファイルを Drive 上に置くことで
    複数コンテナの並列実行を緩く調整する (best-effort、稀に重複処理は許容)
-3. **Stitching**: Insta360 MediaSDK (`stitcherSDKDemo`) を `subprocess` で起動し、左目 (`_00_`) / 右目 (`_10_`)
+4. **タスク調停 (ローカルモード)**: 完了後に `<元ファイル名>.done` をローカルに作成して再処理を防ぐ
+5. **Stitching**: Insta360 MediaSDK (`stitcherSDKDemo`) を `subprocess` で起動し、左目 (`_00_`) / 右目 (`_10_`)
    raw を 1 本の equirectangular に統合
-4. **大容量分割**: 7GB を超える動画は moviepy/ffmpeg でサイズ均等分割 (YouTube/Photos の上限を意識)
-5. **360° メタデータ注入**: 写真は ExifTool で XMP-GPano、動画は Google の `spatial-media` ツールで mp4 atom
-6. **公開**: 写真は Google Photos のアルバム (= 元フォルダ名)、動画は YouTube の unlisted playlist (= 元フォルダ名) に投入
-7. **失敗通知**: `mail_out=True` ログは Gmail SMTP で運用者にメール
+6. **大容量分割**: 7GB を超える動画は moviepy/ffmpeg でサイズ均等分割 (Photos の上限を意識)
+7. **360° メタデータ注入**: 写真は ExifTool で XMP-GPano、動画は Google の `spatial-media` ツールで mp4 atom
+8. **公開**:
+   - Drive モード: 動画 / 写真ともに Google Photos アルバム (= 元フォルダ名) に投入
+   - ローカル入力モード: 動画 / 写真ともに **Drive (working folder 配下のアルバム名サブフォルダ) と Google Photos アルバム の両方** に投入
+9. **失敗通知**: `mail_out=True` ログは Gmail SMTP で運用者にメール
 
 ## Behavioral principles
 
@@ -66,6 +77,6 @@ Insta360 公式の 360 Studio で raw を変換すると以下の苦痛がある
 ## Out of scope
 
 - HDR 写真の stabilization (MediaSDK 側未対応のため明示的に未サポート)
-- ローカル PC からの直接取り込み (Drive 経由のみ)
 - 処理進捗の Web UI / ダッシュボード
 - ユーザー認証、課金、マルチテナント
+- YouTube への動画公開 (2026 年に廃止)

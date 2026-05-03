@@ -5,13 +5,20 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 import smtplib
+import tempfile
 from configparser import ConfigParser
 import time
 
 
-log_dir = '/insta360-auto-converter-data/logs'
-if not os.path.exists(log_dir):
-    os.makedirs(log_dir)
+# ログ出力先ディレクトリ。本番 (Docker コンテナ) では `/insta360-auto-converter-data/logs` を使うが、
+# テスト環境などでは `INSTA360_LOGS_DIR` で差し替え可能。
+# どちらも書けない (RO FS / 権限なし) 場合は OS 一時ディレクトリにフォールバックして
+# import 自体は失敗させない。
+log_dir = os.environ.get('INSTA360_LOGS_DIR', '/insta360-auto-converter-data/logs')
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except OSError:
+    log_dir = tempfile.mkdtemp(prefix='insta360-auto-converter-logs-')
 
 logger = logging.getLogger('insta360-auto-converter-logger')
 logFile = '{}/insta360-auto-converter-logger-'.format(log_dir) + time.strftime("%Y%m%d") + '.log'

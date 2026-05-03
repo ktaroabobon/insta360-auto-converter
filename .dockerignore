@@ -23,6 +23,12 @@ insta360-auto-converter-data/
 .vscode/
 .idea/
 
+# CI / テスト (本番イメージには不要)
+.github/
+tests/
+.ruff_cache/
+.pytest_cache/
+
 # ドキュメント類
 README.md
 LICENSE

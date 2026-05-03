@@ -17,7 +17,6 @@ import google_photos_uploader as gphotos
 from utils import log
 from utils import silentremove
 from video_processor import VideoProcessor
-from youtube_service import YoutubeHandler
 
 
 config = ConfigParser()
@@ -39,11 +38,6 @@ def main():
     LOG_FLAG = True
     NO_FOUND_IN_A_ROW = 0
     NO_FOUND_IN_A_ROW_LIMIT = 10
-
-    ## youtube service related settings
-    channel_id = config["YOUTUBE_SETTINGS"]["channel_id"]
-    youtube_auth_json_path = '/insta360-auto-converter-data/youtube_auth.json'
-    youtube_handler = YoutubeHandler(youtube_auth_json_path, channel_id)
 
     while True:
         try:
@@ -249,29 +243,20 @@ def main():
                     #    if 'Drive storage quota has been exceeded'.lower() in str(e).lower():
                     #        quota_exceeded_sleep_1_day = True
 
-                    ## 5.2 gphotos
+                    ## 5.2 gphotos (写真も動画も Google Photos のアルバムに直接投入する)
                     try:
+                        album_name = need_convert_files['parent_folder']['name']
                         if is_img:
-                            log('uploading image to google photos: {}')
-                            gphotos.upload_to_album('{}/{}'.format(working_folder, output_file_name),
-                                                    need_convert_files['parent_folder']['name'])
-                        # (#2: only photos will upload to google photos )
+                            log('uploading image to google photos: {}'.format(output_file_name))
+                            gphotos.upload_to_album('{}/{}'.format(working_folder, output_file_name), album_name)
                         else:
                             for tmp_video in split_videos:
-                                vid = None
                                 output_file_name = tmp_video.replace('_convert', '')
-                                youtube_playlists = youtube_handler.get_playlists()
-                                target_playlist_name = need_convert_files['parent_folder']['name']
-                                target_playlist = youtube_handler.get_or_create_playlist(target_playlist_name, youtube_playlists)
-
-                                vid = youtube_handler.initialize_upload(output_file_name, '{}/{}'.format(working_folder, output_file_name))
-                                
-                                # filtered_target_playlist = list(filter(lambda p: 'snippet' in p and 'title' in p['snippet'] and p['snippet']['title'] == target_playlist_name, youtube_playlists))
-                                youtube_handler.set_video_to_playlist(vid, target_playlist['id'])
-                                # gphotos.upload_to_album('{}/{}'.format(working_folder, output_file_name),
-                                #                     need_convert_files['parent_folder']['name'])
+                                log('uploading video to google photos: {}'.format(output_file_name))
+                                gphotos.upload_to_album('{}/{}'.format(working_folder, output_file_name), album_name)
                     except Exception as e:
-                        msg = 'media upload to album/playlist failed: {}, file_name: {}, parent folder info: {}'.format(e, output_file_name, need_convert_files['parent_folder'])
+                        msg = 'media upload to album failed: {}, file_name: {}, parent folder info: {}'.format(
+                            e, output_file_name, need_convert_files['parent_folder'])
                         log(msg, True)
 
                     # adding/uploading auto_done flag file

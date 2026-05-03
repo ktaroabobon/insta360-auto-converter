@@ -19,11 +19,13 @@ inclusion: always
 
 | サービス | 用途 | 認証方式 | クレデンシャル配置 |
 |---|---|---|---|
-| Google Drive | raw 取得 / フラグファイル / (将来の) アップロード | サービスアカウント JSON | `/insta360-auto-converter-data/auto-conversion.json` |
-| Google Photos | 写真の公開先アルバム | OAuth user credentials | `/insta360-auto-converter-data/gphotos_auth.json` |
-| YouTube Data API v3 | 動画の公開先 playlist | OAuth user credentials | `/insta360-auto-converter-data/youtube_auth.json` |
+| Google Drive | raw 取得 / フラグファイル / アップロード先 (ローカル入力モード時) | サービスアカウント JSON | `/insta360-auto-converter-data/auto-conversion.json` |
+| Google Photos | 動画 / 写真の公開先アルバム | OAuth user credentials | `/insta360-auto-converter-data/gphotos_auth.json` |
 | Gmail SMTP | エラー通知メール | SMTP パスワード (configs.txt) | `/insta360-auto-converter-data/configs.txt` |
 | Insta360 MediaSDK | 360° stitching | NDA 配布 (要申請) | リポジトリ直下に `MediaSDK/` を配置(gitignored) |
+
+**Note (2026-05):** YouTube Data API v3 は廃止済み。動画も写真と同様 Google Photos に上げる。
+`configs.txt` の `[YOUTUBE_SETTINGS]` セクションは現在参照されていないが、後方互換のため削除しなくて良い (アプリは無視する)。
 
 **Why:** 認証情報・SDK バイナリは法的・セキュリティ上リポジトリに含められないため、
 ビルド時に `COPY` される `MediaSDK/` と、ランタイムにマウントされる `-data/` が完全に分離されている。
@@ -33,12 +35,14 @@ inclusion: always
 
 ## Key Python libraries
 
-- `google-api-python-client` — Drive / YouTube の高レベルクライアント
-- `google-auth-oauthlib` — Photos / YouTube の OAuth user flow (`InstalledAppFlow`)
+- `google-api-python-client` — Drive の高レベルクライアント
+- `google-auth-oauthlib` — Photos の OAuth user flow (`InstalledAppFlow`)
 - `requests-toolbelt` — Photos のレジューム可能アップロード
 - `moviepy` — 動画分割 (`ffmpeg_extract_subclip`, `VideoFileClip`)
 - `configparser` (標準) — INI 形式の設定読み込み
 - `logging.handlers.RotatingFileHandler` — 50MB × 5 ローテーション
+- `pytest` (dev) — ユニットテスト。今後の実装はすべて TDD で進める (詳細は `testing.md`)
+- `ruff` (dev) — lint。CI で自動チェック
 
 ## Vendored binaries / tools
 
@@ -60,12 +64,15 @@ Docker ビルドで丸ごと固める方が再現性が高い。
 設定は **3 層** に分かれている。混同しないこと。
 
 1. **`configs.txt`** (運用者編集、コンテナ外):
-   `[GDRIVE_INFO]`, `[YOUTUBE_SETTINGS]`, `[GMAIL_INFO]` など。Drive ID、working folder ID、
-   YouTube channel ID、メール宛先・パスワード。**個人ごと・環境ごとの値**。
+   `[GDRIVE_INFO]`, `[GMAIL_INFO]` など。Drive ID、working folder ID、メール宛先・パスワード。
+   **個人ごと・環境ごとの値**。
 2. **`apps/in_app_configs.conf`** (リポジトリ管理):
    `[FILES_TO_CLEAN_UP]` の glob パターンなど、コードと連動するアプリ内デフォルト。
 3. **OAuth トークン JSON** (コンテナ外、自動更新):
-   `gphotos_auth.json`, `youtube_auth.json`。`refersh_gphotos_cred.py` でローカル PC から取得して配置。
+   `gphotos_auth.json`。`refersh_gphotos_cred.py` でローカル PC から取得して配置。
+4. **環境変数** (任意):
+   - `INSTA360_LOCAL_INPUT_ROOT` — ローカル入力モードの監視ディレクトリ (デフォルト `/insta360-auto-converter-data/local-input`)
+   - `INSTA360_LOGS_DIR` — `utils.log` のローテーションファイル出力先 (デフォルト `/insta360-auto-converter-data/logs`、テスト用)
 
 **Why:** 個人ごとに変わる値・コードと連動する値・自動更新される値が混じると運用ミスが起きるため。
 

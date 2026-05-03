@@ -16,7 +16,14 @@ package = false
 [dependency-groups]
 dev = [
     "ruff>=0.6",
+    "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# テストから apps/ 配下のモジュールを直接 import できるよう sys.path に追加する
+pythonpath = ["apps"]
+addopts = "-q"
 
 [tool.ruff]
 line-length = 120
