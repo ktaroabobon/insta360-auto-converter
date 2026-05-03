@@ -1,0 +1,14 @@
+[project]
+name = "insta360-auto-converter"
+version = "0.1.0"
+description = "Automatically convert Insta360 .insv/.insp files to 360 mp4/jpg and upload to Google Photos / YouTube"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.0",
+    "requests-toolbelt>=1.0",
+    "moviepy<2.0",
+]
+
+[tool.uv]
+package = false

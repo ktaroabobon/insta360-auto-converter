@@ -1,0 +1,28 @@
+# VCS
+.git/
+.gitignore
+
+# direnv / mise
+.envrc
+.envrc.sample
+
+# uv / Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# OS
+.DS_Store
+
+# データディレクトリ（コンテナ起動時に -v でマウントするため不要）
+insta360-auto-converter-data/
+
+# Kiro / IDE
+.kiro/
+.vscode/
+.idea/
+
+# ドキュメント類
+README.md
+LICENSE
