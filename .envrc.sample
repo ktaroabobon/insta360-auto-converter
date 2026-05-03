@@ -1,0 +1,26 @@
+# =============================================
+# insta360-auto-converter 用環境変数
+# =============================================
+# direnv allow で読み込まれる。.envrc は git 管理外（.gitignore 参照）。
+# 値はローカル環境に合わせて書き換えること。
+
+# mise の有効化（mise.toml の python / uv を PATH に通す）
+use mise
+
+# =============================================
+# データディレクトリ
+# =============================================
+# Insta360 Media SDK の認証情報・configs.txt・gphotos_auth.json などを
+# 配置するホスト側のディレクトリ。Docker 実行時に /insta360-auto-converter-data
+# としてマウントされる。
+# README の "insta360-auto-converter-data" 参照。
+export INSTA360_DATA_DIR=$PWD/insta360-auto-converter-data
+
+# =============================================
+# Docker
+# =============================================
+# ビルド時のイメージ名（Makefile から参照）
+export DOCKER_IMAGE_NAME=insta360-auto-converter
+
+# 実行時のコンテナ名（Makefile から参照）
+export DOCKER_CONTAINER_NAME=insta360-auto-converter

@@ -1,19 +1,58 @@
-From ubuntu:focal
+# syntax=docker/dockerfile:1.7
 
-RUN echo -n "deb http://security.ubuntu.com/ubuntu bionic-security main" >> /etc/apt/sources.list
-RUN apt-get update && apt-get install -y python3-pip aptitude
-RUN aptitude install -y build-essential vim libimage-exiftool-perl 
-RUN apt-get update && apt-cache policy libssl1.0-dev && apt-get install -y libssl1.0-dev
+# uv 公式イメージから uv バイナリだけ取得
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
+FROM ubuntu:focal
+
+# Insta360 MediaSDK が要求する libssl1.0-dev は focal にないため bionic-security を追加
+RUN echo "deb http://security.ubuntu.com/ubuntu bionic-security main" >> /etc/apt/sources.list
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get install -y --no-install-recommends ffmpeg
-ENV DEBIAN_FRONTEND=""
-RUN pip3 install --upgrade pip
-RUN pip3 install  google-api-python-client google_auth_oauthlib requests_toolbelt moviepy
-RUN sed 's/_DEFAULT_TIMEOUT = 120  # in seconds/_DEFAULT_TIMEOUT = 86400/g' /usr/local/lib/python3.8/dist-packages/google/auth/transport/requests.py > tmp.txt && mv tmp.txt /usr/local/lib/python3.8/dist-packages/google/auth/transport/requests.py
-COPY . /insta360-auto-converter/
+
+# システム依存をまとめてインストール
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        ffmpeg \
+        libimage-exiftool-perl \
+        libssl1.0-dev \
+        vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv バイナリを公式イメージから配置
+COPY --from=uv /uv /usr/local/bin/uv
+
+# uv 設定: バイトコンパイル / リンク方式 / venv 配置先 / Python 自動ダウンロード
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=automatic \
+    PATH=/opt/venv/bin:/usr/local/bin:$PATH
+
+WORKDIR /insta360-auto-converter
+
+# 依存だけ先にインストール（レイヤキャッシュ最適化）
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
+
+# Google API クライアントのタイムアウトを延長（>2GB resumable upload 対応）
+RUN python -c "from pathlib import Path; \
+import google.auth.transport.requests as m; \
+p = Path(m.__file__); \
+p.write_text(p.read_text().replace('_DEFAULT_TIMEOUT = 120', '_DEFAULT_TIMEOUT = 86400'))"
+
+# プロジェクト本体をコピー
+COPY . .
+
+# Insta360 MediaSDK のビルド
+ENV LD_LIBRARY_PATH=/insta360-auto-converter/MediaSDK/lib/:${LD_LIBRARY_PATH}
 WORKDIR /insta360-auto-converter/MediaSDK
-ENV LD_LIBRARY_PATH=LD_LIBRARY_PATH:/insta360-auto-converter/MediaSDK/lib/
-RUN g++ -Wno-error -std=c++11  example/main.cc -o stitcherSDKDemo -I/insta360-auto-converter/MediaSDK/include/ -L/insta360-auto-converter/MediaSDK/lib/ -L/insta360-auto-converter/MediaSDK/lib/ -lMediaSDK
+RUN g++ -Wno-error -std=c++11 example/main.cc \
+        -o stitcherSDKDemo \
+        -I/insta360-auto-converter/MediaSDK/include/ \
+        -L/insta360-auto-converter/MediaSDK/lib/ \
+        -lMediaSDK
+
 WORKDIR /insta360-auto-converter/apps
-CMD ["python3", "insta360_auto_converter.py"]
+CMD ["python", "insta360_auto_converter.py"]
