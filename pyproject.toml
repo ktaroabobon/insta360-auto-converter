@@ -12,3 +12,29 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "MediaSDK",
+    "Image-ExifTool-12.10",
+    "spatial-media",
+]
+
+[tool.ruff.lint]
+# 既存コードを過度に壊さないため、まずは「実バグ」検知系のみ有効化する。
+# 段階的にルールを追加していく方針 (E/W/I/B などは別途検討)。
+# - E9     : 構文エラー
+# - F63    : 比較のミス (`is`/`==` の取り違えなど)
+# - F7     : 構文系の論理エラー (ループ外 break など)
+# - F82    : 未定義名の使用
+# - F811   : 同名再定義 (本物のバグになりがち)
+# - F821   : 未定義の参照
+# - F823   : ローカル変数を代入前に参照
+select = ["E9", "F63", "F7", "F82", "F811", "F821", "F823"]

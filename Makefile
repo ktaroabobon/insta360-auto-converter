@@ -51,6 +51,21 @@ env/allow:
 	direnv allow .
 
 # ================================================
+# Lint / 構文チェック (CI と同じコマンド)
+# ================================================
+.PHONY: lint
+lint:
+	uv run ruff check apps scripts
+
+.PHONY: lint/fix
+lint/fix:
+	uv run ruff check --fix apps scripts
+
+.PHONY: syntax
+syntax:
+	uv run python -m compileall -q apps
+
+# ================================================
 # アプリ実行（ローカル）
 # ================================================
 # 注意: 本来 Insta360 Media SDK のネイティブバイナリ実行や
@@ -140,6 +155,9 @@ help:
 	@echo "    lock                 uv lock で uv.lock を更新"
 	@echo "    env/check            .envrc と .envrc.sample のキー差分をチェック"
 	@echo "    env/allow            direnv allow を実行"
+	@echo "    lint                 ruff check で apps/scripts を lint (CI と同じ)"
+	@echo "    lint/fix             ruff check --fix で自動修正"
+	@echo "    syntax               python -m compileall で apps/ の構文チェック"
 	@echo ""
 	@echo "  ローカル実行（参考: 通常は Docker 内で動作させる）:"
 	@echo "    run                  apps/insta360_auto_converter.py を直接実行"
