@@ -93,7 +93,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Boundary: LocalStartupValidator_
 
 - [ ] 5. ConfigSampleAndDocs: 運用者向け移行アーティファクトを整える
-- [ ] 5.1 (P) configs.yaml.sample をリポジトリ直下に追加する
+- [x] 5.1 (P) configs.yaml.sample をリポジトリ直下に追加する
   - 全必須キー (`gdrive.drive_id`, `gdrive.working_folder_id`, `gmail.address`, `gmail.password`, `gmail.error_mail_to`, `upload.drive`, `upload.photos`) を含むサンプル YAML を提供
   - 各値はプレースホルダ ("REPLACE-WITH-..." 等) にし、`upload.drive: true`, `upload.photos: true` をデフォルト例として記載
   - ファイル末尾に「両方 false は不可」「廃止された `[YOUTUBE_SETTINGS]` は YAML へ移植不要」の注釈コメントを入れる
