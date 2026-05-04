@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import local_auto_converter as lac
-from app_config import UploadTargets
+from app_config import AppConfig, AppConfigError, GdriveConfig, GmailConfig, UploadTargets
 
 
 @pytest.fixture
@@ -407,3 +407,129 @@ class TestProcessPendingSkipDoesNotAlertOperator:
             assert mail_out_kw is not True, (
                 "log() called with mail_out=True (keyword) on skip: {}".format(call)
             )
+
+
+# ---------------------------------------------------------------------------
+# main() の起動時検証 + UploadTargets ログ + AppConfigError 時の運用者通知
+# (Task 4.3 = LocalStartupValidator)
+# ---------------------------------------------------------------------------
+
+
+def _fake_app_config(*, drive: bool = True, photos: bool = True) -> AppConfig:
+    """テスト用の `AppConfig` を組む。toggle 値だけ自由に差し替えられる。"""
+    return AppConfig(
+        gdrive=GdriveConfig(
+            drive_id="test-drive-id",
+            working_folder_id="test-working-folder-id",
+        ),
+        gmail=GmailConfig(
+            address="test@example.com",
+            password="test-password",
+            error_mail_to="ops@example.com",
+        ),
+        upload=UploadTargets(drive=drive, photos=photos),
+    )
+
+
+class _SleepCalledOnce(BaseException):
+    """`time.sleep` を 1 度呼んだ時点で main() の `while True` を強制離脱させるためのセンチネル。
+
+    `BaseException` を継承するのは、main() の broad `except Exception` で
+    握りつぶされないため。
+    """
+
+
+class TestMainStartupLog:
+    """Req 4.1: main() がループ突入直前に `uploads enabled: drive=..., photos=...` を 1 回出す。"""
+
+    def test_logs_resolved_targets_at_startup_once(self, monkeypatch):
+        # AppConfig は load_app_config を差し替えて返却 (drive=true, photos=false で確認)
+        cfg = _fake_app_config(drive=True, photos=False)
+        monkeypatch.setattr("local_auto_converter.load_app_config", lambda: cfg)
+
+        # GDriveService は import 副作用を避けるため MagicMock 化 (init は通る)
+        monkeypatch.setattr(
+            "local_auto_converter.GDriveService",
+            MagicMock(return_value=MagicMock(name="gs-instance")),
+        )
+
+        # 空アルバム → process_pending を呼ばずに `time.sleep` まで到達させる
+        monkeypatch.setattr("local_auto_converter.list_album_dirs", lambda root: [])
+
+        # `time.sleep` を 1 回呼んだら例外で `while True` を抜ける
+        sleep_calls: list[int] = []
+
+        def _abort_sleep(_secs):
+            sleep_calls.append(_secs)
+            raise _SleepCalledOnce()
+
+        monkeypatch.setattr("local_auto_converter.time.sleep", _abort_sleep)
+
+        # ログを観測
+        mock_log = MagicMock(name="log")
+        monkeypatch.setattr("local_auto_converter.log", mock_log)
+
+        # main() を実行: _SleepCalledOnce で離脱 (broad except を BaseException で貫通)
+        with pytest.raises(_SleepCalledOnce):
+            lac.main()
+
+        # `uploads enabled: drive=true, photos=false` を含む info ログ行が **1 回だけ** 出る
+        startup_log_calls = [
+            call
+            for call in mock_log.call_args_list
+            if call.args
+            and isinstance(call.args[0], str)
+            and "uploads enabled:" in call.args[0]
+        ]
+        assert len(startup_log_calls) == 1, (
+            "expected exactly 1 startup log line containing 'uploads enabled:', "
+            "got {}: {}".format(len(startup_log_calls), startup_log_calls)
+        )
+        startup_msg = startup_log_calls[0].args[0]
+        assert "drive=true" in startup_msg
+        assert "photos=false" in startup_msg
+        # 起動ログは info (= mail_out=True を伴わない)
+        startup_kwargs = startup_log_calls[0].kwargs
+        startup_args = startup_log_calls[0].args
+        mail_out_pos = startup_args[1] if len(startup_args) >= 2 else False
+        mail_out_kw = startup_kwargs.get("mail_out", False)
+        assert mail_out_pos is not True
+        assert mail_out_kw is not True
+
+
+class TestMainAppConfigErrorAlertsAndExits:
+    """Req 1.6 / 4.3: AppConfigError 発生時に operator alert email + SystemExit(1)。"""
+
+    def test_app_config_error_logs_with_mail_out_true_and_exits_1(self, monkeypatch):
+        def _broken_loader():
+            raise AppConfigError(
+                "upload.drive and upload.photos are both false; "
+                "at least one upload destination must be enabled"
+            )
+
+        monkeypatch.setattr("local_auto_converter.load_app_config", _broken_loader)
+
+        # ログを観測
+        mock_log = MagicMock(name="log")
+        monkeypatch.setattr("local_auto_converter.log", mock_log)
+
+        with pytest.raises(SystemExit) as exc_info:
+            lac.main()
+
+        # exit code = 1
+        assert exc_info.value.code == 1
+
+        # mail_out=True を伴う log() 呼出が少なくとも 1 回ある
+        mail_out_calls = []
+        for call in mock_log.call_args_list:
+            args = call.args
+            kwargs = call.kwargs
+            mail_out_pos = args[1] if len(args) >= 2 else False
+            mail_out_kw = kwargs.get("mail_out", False)
+            if mail_out_pos is True or mail_out_kw is True:
+                mail_out_calls.append(call)
+
+        assert len(mail_out_calls) >= 1, (
+            "expected at least one log() call with mail_out=True on AppConfigError, "
+            "got log calls: {}".format(mock_log.call_args_list)
+        )

@@ -16,14 +16,18 @@ import sys
 import time
 import glob
 import subprocess
-from configparser import ConfigParser
 from pathlib import Path
 from subprocess import PIPE, Popen
 from typing import Callable, Optional
 
 sys.path.append('.')
 import google_photos_uploader as gphotos  # noqa: E402
-from app_config import UploadTargets  # noqa: E402
+from app_config import (  # noqa: E402
+    AppConfigError,
+    UploadTargets,
+    format_upload_targets,
+    load_app_config,
+)
 from gdrive_service import GDriveService  # noqa: E402
 from local_input import (  # noqa: E402
     derive_output_names,
@@ -192,14 +196,22 @@ def _run_sdk_and_inject_metadata(pending: dict, convert_name: str, output_name: 
 
 
 def main():
-    config = ConfigParser()
-    config.read("/insta360-auto-converter-data/configs.txt")
+    # 起動時に YAML 設定をロードし、フェイルファストで検証する。
+    # 失敗時は operator alert email を出してから SystemExit(1) で終了する (Req 1.6 / 4.3)。
+    try:
+        cfg = load_app_config()
+    except AppConfigError as e:
+        log("local_auto_converter startup failed: {}".format(e), mail_out=True)
+        raise SystemExit(1) from e
 
     cred_path = "/insta360-auto-converter-data/auto-conversion.json"
-    drive_id = config["GDRIVE_INFO"]["drive_id"]
-    drive_parent_id = config["GDRIVE_INFO"]["working_folder_id"]
+    drive_id = cfg.gdrive.drive_id
+    drive_parent_id = cfg.gdrive.working_folder_id
     input_root = Path(os.environ.get("INSTA360_LOCAL_INPUT_ROOT", DEFAULT_LOCAL_INPUT_ROOT))
     working_folder = "/insta360-auto-converter/apps"
+
+    # 主ループ突入直前に有効な toggle 状態を info ログへ 1 回出す (Req 4.1)。
+    log("uploads enabled: {}".format(format_upload_targets(cfg.upload)))
 
     log_flag = True
     no_found_in_a_row = 0
@@ -228,15 +240,13 @@ def main():
                     outputs_holder["outputs"] = outs
 
                 # is_image なら outputs はそのまま [output_name]、動画は split_outputs を渡す
-                # NOTE: upload_targets は task 4.3 で main() を YAML 経由に置き換えるまでの
-                #       暫定シム。現状は既存挙動 (Drive + Photos 両方上げる) を保つ。
                 process_pending(
                     pending=pending,
                     working_folder=working_folder,
                     drive_parent_id=drive_parent_id,
                     gs=gs,
                     sdk_runner=_runner,
-                    upload_targets=UploadTargets(drive=True, photos=True),
+                    upload_targets=cfg.upload,
                     split_outputs=outputs_holder.get("outputs") if not pending["is_image"] else None,
                 )
                 processed = True

@@ -81,7 +81,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Requirements: 3.1, 3.4_
   - _Boundary: DriveModeConfigConsumer_
 
-- [ ] 4.3 (P) LocalStartupValidator: main() の起動時検証 + UploadTargets 受け渡し配線
+- [x] 4.3 (P) LocalStartupValidator: main() の起動時検証 + UploadTargets 受け渡し配線
   - `apps/local_auto_converter.py:main()` の冒頭で `load_app_config()` を呼び、`AppConfig` を取得
   - 主ループ突入直前に info ログで `uploads enabled: drive=<bool>, photos=<bool>` を 1 回出力
   - `AppConfigError` (両 toggle false / 必須キー欠落 / パース失敗) を捕捉し、`log(message, mail_out=True)` で operator alert email + `SystemExit(1)` で fail-fast 終了
