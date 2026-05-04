@@ -12,7 +12,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Requirements: 3.1_
   - _Boundary: Project Dependencies_
 
-- [ ] 1.2 設定パスを差し替えるテスト fixture を導入する
+- [x] 1.2 設定パスを差し替えるテスト fixture を導入する
   - 新規 autouse fixture が、テスト時に `INSTA360_CONFIGS_PATH` を `tmp_path` 配下のダミー YAML に向けるようにする
   - ダミー YAML はすべての必須キーをプレースホルダ値で含み、後続の各テストが副作用なく `apps.utils` を import できる構造にする
   - 既存の `_TEST_LOGS_DIR` パターンに揃え、テストプロセス全体で 1 度だけ生成し、不要時は cleanup する
