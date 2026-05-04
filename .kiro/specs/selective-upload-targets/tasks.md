@@ -5,7 +5,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
 `(P)` 印は、直前のピアと並列実行が安全なタスク。
 
 - [ ] 1. Foundation: 依存関係とテスト基盤の準備
-- [ ] 1.1 YAML パーサ依存を追加し、ロックファイルを更新する
+- [x] 1.1 YAML パーサ依存を追加し、ロックファイルを更新する
   - `pyproject.toml` の `dependencies` に PyYAML (バージョン 6.x 系) を追加し、`uv lock` で `uv.lock` を再生成する
   - `make lint` / `make syntax` / `make test` がすべて green のままであることを確認する
   - 観測可能な完了状態: `uv.lock` 内に PyYAML のエントリがあり、`uv run python -c "import yaml; print(yaml.__version__)"` が 6.x を出力する
