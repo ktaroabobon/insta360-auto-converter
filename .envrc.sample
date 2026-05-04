@@ -10,7 +10,7 @@ use mise
 # =============================================
 # データディレクトリ
 # =============================================
-# Insta360 Media SDK の認証情報・configs.txt・gphotos_auth.json などを
+# Insta360 Media SDK の認証情報・configs.yaml・gphotos_auth.json などを
 # 配置するホスト側のディレクトリ。Docker 実行時に /insta360-auto-converter-data
 # としてマウントされる。
 # README の "insta360-auto-converter-data" 参照。

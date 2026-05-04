@@ -65,15 +65,17 @@
 ## 設定読み込みパターン
 
 ```python
-config = ConfigParser()
-config.read("/insta360-auto-converter-data/configs.txt")
+from app_config import load_app_config
+
+_app_config = load_app_config()  # YAML を読み AppConfig (frozen dataclass) を返す
 ```
 
-- **モジュールロード時** に `config.read()` する (各ファイルの先頭で実行)
-- 設定値が無いと `KeyError` で落ちる (= フェイルファスト)
-- `apps/in_app_configs.conf` は別の `ConfigParser` インスタンスで読む
+- **モジュールロード時** に `load_app_config()` を呼ぶ (各エントリポイントの先頭で実行)
+- `configs.yaml` 不在 / 必須キー欠落 / 型不一致 / 両 `upload.*` false で `AppConfigError` を上げ、フェイルファスト
+- 旧 INI (`configs.txt`) へのフォールバックは禁止 (`apps/app_config.py` で明示的にしていない)
+- `apps/in_app_configs.conf` (アプリ内デフォルト) は引き続き別の `ConfigParser` インスタンスで読む
 
-**関数内で `config.read()` を呼ばない**。新規モジュールでも先頭で読み込むパターンを踏襲する。
+**関数内で `load_app_config()` を呼ばない**。新規モジュールでも先頭で読み込むパターンを踏襲する。テスト時は `INSTA360_CONFIGS_PATH` 環境変数で tmp YAML に差し替え可能。
 
 ## 文字列フォーマット
 

@@ -6,8 +6,9 @@ import logging
 from logging.handlers import RotatingFileHandler
 import smtplib
 import tempfile
-from configparser import ConfigParser
 import time
+
+from app_config import load_app_config
 
 
 # ログ出力先ディレクトリ。本番 (Docker コンテナ) では `/insta360-auto-converter-data/logs` を使うが、
@@ -27,8 +28,11 @@ handler = RotatingFileHandler(logFile, mode='a', maxBytes=50 * 1024 * 1024,
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
-config = ConfigParser()
-config.read("/insta360-auto-converter-data/configs.txt")
+# YAML 設定を起動時 (モジュールロード時) に 1 度だけロードする。
+# 不在 / パース失敗 / 必須キー欠落の場合は AppConfigError で即座に落ちる (フェイルファスト)。
+# テスト時は conftest.py が `INSTA360_CONFIGS_PATH` を tmp YAML に向ける。
+_app_config = load_app_config()
+
 
 def log(content, mail_out=False):
     log_content = '[{}] {}'.format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), content)
@@ -38,7 +42,7 @@ def log(content, mail_out=False):
         logger.info(log_content)
     print(log_content)
     if mail_out:
-        send_mail(config["GMAIL_INFO"]["error_mail_to"], 'insta360-auto-converter Job Failed', content)
+        send_mail(_app_config.gmail.error_mail_to, 'insta360-auto-converter Job Failed', content)
 
 
 def silentremove(filename):
@@ -50,13 +54,13 @@ def silentremove(filename):
 
 
 def send_mail(to, subject, body):
-    s = config["GMAIL_INFO"]["pass"]
-    gmail_user = config["GMAIL_INFO"]["id"]
+    s = _app_config.gmail.password
+    gmail_user = _app_config.gmail.address
     sent_from = gmail_user
 
     mime = MIMEText(body, "plain", "utf-8")
     mime["Subject"] = subject
-    mime["From"] = config["GMAIL_INFO"]["id"]
+    mime["From"] = gmail_user
     mime["To"] = to
 
     try:

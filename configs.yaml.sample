@@ -1,0 +1,37 @@
+# insta360-auto-converter 設定ファイルのサンプル
+#
+# このファイルを `/insta360-auto-converter-data/configs.yaml` にコピーして
+# 自分の環境用の値に書き換えてください (Docker からは
+# /insta360-auto-converter-data/ にホストマウントされる前提)。
+#
+# 注意:
+#   - `upload.drive` と `upload.photos` の **両方を false** にすることはできません
+#     (起動時に AppConfigError でフェイルファストします)。
+#   - 旧 `[YOUTUBE_SETTINGS]` セクションは 2026 年に廃止済みのため、
+#     YAML へ移植する必要はありません。
+#   - Gmail の SMTP パスワードは Google アカウントの「アプリパスワード」を使ってください。
+#   - 認証 JSON (`auto-conversion.json` / `gphotos_auth.json`) はこの YAML とは別に
+#     `/insta360-auto-converter-data/` 配下に配置してください。
+
+gdrive:
+  # Shared Drive の ID (URL 末尾の文字列)
+  drive_id: "0AB-REPLACE-WITH-YOUR-SHARED-DRIVE-ID"
+  # 作業フォルダ (insta360_autoflow folder) の ID
+  working_folder_id: "1xy-REPLACE-WITH-WORKING-FOLDER-ID"
+
+gmail:
+  # 送信元アドレス (= 認証ユーザー名)
+  address: "alerts@example.com"
+  # Google アプリパスワード (16 文字、空白なし)
+  password: "REPLACE-WITH-APP-PASSWORD"
+  # エラー通知の送信先
+  error_mail_to: "ops@example.com"
+
+# ローカル入力モード (`apps/local_auto_converter.py`) でのアップロード先トグル。
+# Drive モード (`apps/insta360_auto_converter.py`) は元から Photos のみへ送るので
+# このトグルの影響を受けません。
+upload:
+  # true: Drive (working_folder 配下のアルバム名サブフォルダ) にアップロードする
+  drive: true
+  # true: Google Photos の同名アルバムにアップロードする
+  photos: true

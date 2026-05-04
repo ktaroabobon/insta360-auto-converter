@@ -55,11 +55,41 @@ insta360-auto-converter
 ```
 insta360-auto-converter-data   # ホスト側のどこかに配置（マウント対象）
 ├── auto-conversion.json
-├── configs.txt
+├── configs.yaml               # 設定ファイル (旧 configs.txt から YAML 化、後述)
 ├── gphotos_auth.json
 └── local-input/               # ローカル入力モード用 (任意)
     └── <アルバム名>/            # ここに .insv / .insp を置くと自動アップロード
 ```
+
+### 設定ファイル: configs.yaml
+
+リポジトリ直下の `configs.yaml.sample` を `/insta360-auto-converter-data/configs.yaml` にコピーして、自分の環境用の値に書き換える。必要なキーは下記の通り。
+
+| YAML キー | 内容 |
+|---|---|
+| `gdrive.drive_id` | Shared Drive の ID |
+| `gdrive.working_folder_id` | 作業フォルダ (insta360_autoflow) の ID |
+| `gmail.address` | 通知メールの送信元アドレス |
+| `gmail.password` | Gmail のアプリパスワード |
+| `gmail.error_mail_to` | エラー通知の送信先 |
+| `upload.drive` | ローカル入力モードで Drive にアップロードするか (true/false) |
+| `upload.photos` | ローカル入力モードで Photos にアップロードするか (true/false) |
+
+`upload.drive` と `upload.photos` の **両方を false** にすることはできず、起動時に `AppConfigError` でフェイルファストする。Drive モード (`apps/insta360_auto_converter.py`) は元から Photos のみへ送るため `upload.*` トグルの影響を受けない。
+
+#### 旧 configs.txt から configs.yaml への移行
+
+旧形式の INI (`configs.txt`) からは下表のとおりキーを書き写す。アプリは INI へフォールバックしないので、`configs.yaml` 用意前にコンテナを再起動すると起動時に失敗してメール通知が飛ぶ。
+
+| 旧 INI セクション / キー | 新 YAML キー |
+|---|---|
+| `[GDRIVE_INFO] drive_id` | `gdrive.drive_id` |
+| `[GDRIVE_INFO] working_folder_id` | `gdrive.working_folder_id` |
+| `[GMAIL_INFO] id` | `gmail.address` |
+| `[GMAIL_INFO] pass` | `gmail.password` |
+| `[GMAIL_INFO] error_mail_to` | `gmail.error_mail_to` |
+| `[YOUTUBE_SETTINGS]` (廃止済) | **破棄** (現行コード未参照) |
+| (新規) | `upload.drive` / `upload.photos` |
 
 ### 3. 開発環境の初期化
 

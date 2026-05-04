@@ -4,7 +4,6 @@ import logging
 import os.path
 import time
 from logging.handlers import RotatingFileHandler
-from configparser import ConfigParser
 from datetime import datetime
 from datetime import date
 from email.mime.text import MIMEText
@@ -14,10 +13,6 @@ from utils import log
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-
-
-config = ConfigParser()
-config.read("/insta360-auto-converter-data/configs.txt")
 
 
 def parse_args(arg_input=None):
