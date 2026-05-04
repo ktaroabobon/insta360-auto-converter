@@ -61,7 +61,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Boundary: LocalUploadGate_
 
 - [ ] 4. 既存 config 消費者を AppConfigLoader 経由に切替える
-- [ ] 4.1 (P) UtilsMailConsumer の SMTP 認証読込を AppConfigLoader 経由にする
+- [x] 4.1 (P) UtilsMailConsumer の SMTP 認証読込を AppConfigLoader 経由にする
   - `apps/utils.py` のモジュールロード時 `ConfigParser` 関連を削除し、`load_app_config()` で読み込んだ `AppConfig.gmail` を保持する
   - `send_mail()` は `gmail.address` / `gmail.password` / `gmail.error_mail_to` を AppConfig 経由で参照する
   - `log()` 関数の外部 API は不変 (シグネチャと振る舞い)
