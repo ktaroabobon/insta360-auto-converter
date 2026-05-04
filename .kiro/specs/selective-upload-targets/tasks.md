@@ -40,7 +40,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Boundary: AppConfigLoader_
 
 - [ ] 3. LocalUploadGate を TDD で構築する
-- [ ] 3.1 process_pending の UploadTargets ゲーティング失敗テストを書く
+- [x] 3.1 process_pending の UploadTargets ゲーティング失敗テストを書く
   - 既存の `test_local_auto_converter.py` を拡張し、`process_pending` の新しい `upload_targets` 引数 (UploadTargets) を取る前提のテストに揃える
   - `UploadTargets(drive=True, photos=False)` 構成で Photos uploader が呼ばれず、Drive subfolder 解決と `upload_file_to_folder` のみが呼ばれ、`.done` マーカーが作られることを検証
   - `UploadTargets(drive=False, photos=True)` 構成で `gs.get_or_create_subfolder` / `gs.upload_file_to_folder` が呼ばれず、Photos uploader のみが呼ばれ、`.done` が作られることを検証

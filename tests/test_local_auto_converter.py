@@ -5,10 +5,12 @@
 
 このモジュールが守るべき不変条件:
 
-- 動画 / 写真ともに、最終出力を **Drive と Photos の両方** にアップロードする
-- Drive は working folder 配下の **アルバム名サブフォルダ** に置く (なければ作る)
-- Photos のアルバム名 = ローカルディレクトリ名
-- `mark_done` は **すべてのアップロードが終わった後** に呼ぶ (失敗時は再試行できる状態を保つ)
+- `upload_targets.drive` が True のときのみ Drive (working folder 配下のアルバム名サブフォルダ)
+  にアップロードする
+- `upload_targets.photos` が True のときのみ Google Photos (アルバム名 = ローカルディレクトリ名)
+  にアップロードする
+- `mark_done` は **すべての有効なアップロード先が成功した後** に呼ぶ (失敗時は再試行できる状態を保つ)
+- toggle off によるスキップはエラー扱いしない (= `mail_out=True` ログを出さない)
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import local_auto_converter as lac
+from app_config import UploadTargets
 
 
 @pytest.fixture
@@ -65,6 +68,11 @@ def _make_drive_subfolder():
             "mimeType": "application/vnd.google-apps.folder"}
 
 
+# ---------------------------------------------------------------------------
+# 既存挙動のリグレッション (両 toggle = True)
+# ---------------------------------------------------------------------------
+
+
 class TestProcessPendingPhoto:
     def test_uploads_jpg_to_both_drive_and_photos_then_marks_done(self, album_dir, working_folder):
         pending = _stub_pending_photo(album_dir)
@@ -86,6 +94,7 @@ class TestProcessPendingPhoto:
             drive_parent_id="working-folder-id",
             gs=gs,
             sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=True, photos=True),
             photos_uploader=photos_uploader,
         )
 
@@ -125,6 +134,7 @@ class TestProcessPendingVideo:
             drive_parent_id="working-folder-id",
             gs=gs,
             sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=True, photos=True),
             photos_uploader=photos_uploader,
             split_outputs=["VID_a_00_001-1.mp4", "VID_a_00_001-2.mp4"],
         )
@@ -156,6 +166,7 @@ class TestProcessPendingFailure:
                 drive_parent_id="wf",
                 gs=gs,
                 sdk_runner=sdk_runner,
+                upload_targets=UploadTargets(drive=True, photos=True),
                 photos_uploader=photos_uploader,
             )
 
@@ -164,3 +175,235 @@ class TestProcessPendingFailure:
         # Photos / Drive にも上がらない
         gs.upload_file_to_folder.assert_not_called()
         photos_uploader.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# UploadTargets ゲート (Task 3.1 の対象テスト群)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessPendingDriveOnly:
+    """`UploadTargets(drive=True, photos=False)`: Drive のみアップロード。"""
+
+    def test_drive_only_skips_photos_and_marks_done(self, album_dir, working_folder):
+        pending = _stub_pending_photo(album_dir)
+        output_path = working_folder / "IMG_a_00_001.jpg"
+
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / output_name).write_bytes(b"fake-jpg")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        gs.get_or_create_subfolder.return_value = _make_drive_subfolder()
+
+        photos_uploader = MagicMock(name="upload_to_album")
+
+        lac.process_pending(
+            pending=pending,
+            working_folder=str(working_folder),
+            drive_parent_id="working-folder-id",
+            gs=gs,
+            sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=True, photos=False),
+            photos_uploader=photos_uploader,
+        )
+
+        # Drive のみ呼ばれる
+        gs.get_or_create_subfolder.assert_called_once_with("working-folder-id", "trip-2026-04")
+        gs.upload_file_to_folder.assert_called_once()
+        upload_args = gs.upload_file_to_folder.call_args
+        assert upload_args.args[0] == str(output_path)
+        assert upload_args.args[1] == _make_drive_subfolder()
+        assert upload_args.args[2] == "image/jpeg"
+
+        # Photos uploader は呼ばれない
+        photos_uploader.assert_not_called()
+
+        # 有効先 (Drive) が成功したので .done マーカーが作られる
+        assert (album_dir / "IMG_a_00_001.insp.done").exists()
+
+
+class TestProcessPendingPhotosOnly:
+    """`UploadTargets(drive=False, photos=True)`: Photos のみアップロード。"""
+
+    def test_photos_only_skips_drive_and_marks_done(self, album_dir, working_folder):
+        pending = _stub_pending_photo(album_dir)
+        output_path = working_folder / "IMG_a_00_001.jpg"
+
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / output_name).write_bytes(b"fake-jpg")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        photos_uploader = MagicMock(name="upload_to_album")
+
+        lac.process_pending(
+            pending=pending,
+            working_folder=str(working_folder),
+            drive_parent_id="working-folder-id",
+            gs=gs,
+            sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=False, photos=True),
+            photos_uploader=photos_uploader,
+        )
+
+        # Drive 関連は一切呼ばれない (subfolder 解決もアップロードも)
+        gs.get_or_create_subfolder.assert_not_called()
+        gs.upload_file_to_folder.assert_not_called()
+
+        # Photos uploader のみ呼ばれる
+        photos_uploader.assert_called_once_with(str(output_path), "trip-2026-04")
+
+        # 有効先 (Photos) が成功したので .done マーカーが作られる
+        assert (album_dir / "IMG_a_00_001.insp.done").exists()
+
+
+class TestProcessPendingPartialFailure:
+    """片方のみ有効な構成で、その有効先が例外を上げた場合 → `.done` 未作成。"""
+
+    def test_drive_only_drive_failure_leaves_no_done_marker(self, album_dir, working_folder):
+        pending = _stub_pending_photo(album_dir)
+
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / output_name).write_bytes(b"fake-jpg")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        gs.get_or_create_subfolder.return_value = _make_drive_subfolder()
+        # Drive 側がアップロード失敗
+        gs.upload_file_to_folder.side_effect = RuntimeError("drive upload failed")
+
+        photos_uploader = MagicMock(name="upload_to_album")
+
+        with pytest.raises(RuntimeError):
+            lac.process_pending(
+                pending=pending,
+                working_folder=str(working_folder),
+                drive_parent_id="working-folder-id",
+                gs=gs,
+                sdk_runner=sdk_runner,
+                upload_targets=UploadTargets(drive=True, photos=False),
+                photos_uploader=photos_uploader,
+            )
+
+        # 有効先が失敗したので .done マーカーは作られない (次の周回で再試行)
+        assert not (album_dir / "IMG_a_00_001.insp.done").exists()
+        # Photos は無効なので呼ばれていない
+        photos_uploader.assert_not_called()
+
+    def test_photos_only_photos_failure_leaves_no_done_marker(self, album_dir, working_folder):
+        pending = _stub_pending_photo(album_dir)
+
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / output_name).write_bytes(b"fake-jpg")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        # Photos 側がアップロード失敗
+        photos_uploader = MagicMock(
+            name="upload_to_album",
+            side_effect=RuntimeError("photos upload failed"),
+        )
+
+        with pytest.raises(RuntimeError):
+            lac.process_pending(
+                pending=pending,
+                working_folder=str(working_folder),
+                drive_parent_id="working-folder-id",
+                gs=gs,
+                sdk_runner=sdk_runner,
+                upload_targets=UploadTargets(drive=False, photos=True),
+                photos_uploader=photos_uploader,
+            )
+
+        # 有効先が失敗したので .done マーカーは作られない (次の周回で再試行)
+        assert not (album_dir / "IMG_a_00_001.insp.done").exists()
+        # Drive は無効なので一切呼ばれていない
+        gs.get_or_create_subfolder.assert_not_called()
+        gs.upload_file_to_folder.assert_not_called()
+
+
+class TestProcessPendingSkipDoesNotAlertOperator:
+    """toggle off による skip では `mail_out=True` ログ (= operator alert email) を出さない (Req 4.2)。"""
+
+    def test_drive_only_skip_does_not_call_log_with_mail_out(
+        self, album_dir, working_folder, monkeypatch
+    ):
+        pending = _stub_pending_photo(album_dir)
+
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / output_name).write_bytes(b"fake-jpg")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        gs.get_or_create_subfolder.return_value = _make_drive_subfolder()
+
+        photos_uploader = MagicMock(name="upload_to_album")
+
+        # `local_auto_converter` モジュール内で参照される `log` 関数を観測する。
+        # `from utils import log` でバインドされているので、モジュール属性として差し替える。
+        mock_log = MagicMock(name="log")
+        monkeypatch.setattr("local_auto_converter.log", mock_log)
+
+        lac.process_pending(
+            pending=pending,
+            working_folder=str(working_folder),
+            drive_parent_id="working-folder-id",
+            gs=gs,
+            sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=True, photos=False),
+            photos_uploader=photos_uploader,
+        )
+
+        # toggle off のスキップでは mail_out=True を伴うログは絶対に呼ばない。
+        # (info ログとしての log() 自体は許容するが、operator alert email を発火しないこと)
+        for call in mock_log.call_args_list:
+            # mail_out は 2 つ目の positional または keyword 引数で渡される。
+            # 2 引数版: log(msg, mail_out=True) または log(msg, True)
+            args = call.args
+            kwargs = call.kwargs
+            mail_out_pos = args[1] if len(args) >= 2 else False
+            mail_out_kw = kwargs.get("mail_out", False)
+            assert mail_out_pos is not True, (
+                "log() called with mail_out=True (positional) on skip: {}".format(call)
+            )
+            assert mail_out_kw is not True, (
+                "log() called with mail_out=True (keyword) on skip: {}".format(call)
+            )
+
+    def test_photos_only_skip_does_not_call_log_with_mail_out(
+        self, album_dir, working_folder, monkeypatch
+    ):
+        pending = _stub_pending_photo(album_dir)
+
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / output_name).write_bytes(b"fake-jpg")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        photos_uploader = MagicMock(name="upload_to_album")
+
+        mock_log = MagicMock(name="log")
+        monkeypatch.setattr("local_auto_converter.log", mock_log)
+
+        lac.process_pending(
+            pending=pending,
+            working_folder=str(working_folder),
+            drive_parent_id="working-folder-id",
+            gs=gs,
+            sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=False, photos=True),
+            photos_uploader=photos_uploader,
+        )
+
+        for call in mock_log.call_args_list:
+            args = call.args
+            kwargs = call.kwargs
+            mail_out_pos = args[1] if len(args) >= 2 else False
+            mail_out_kw = kwargs.get("mail_out", False)
+            assert mail_out_pos is not True, (
+                "log() called with mail_out=True (positional) on skip: {}".format(call)
+            )
+            assert mail_out_kw is not True, (
+                "log() called with mail_out=True (keyword) on skip: {}".format(call)
+            )
