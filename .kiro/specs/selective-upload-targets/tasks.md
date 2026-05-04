@@ -21,7 +21,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Boundary: Test Infrastructure_
 
 - [ ] 2. AppConfigLoader を TDD で構築する
-- [ ] 2.1 AppConfigLoader の失敗するユニットテストを書く
+- [x] 2.1 AppConfigLoader の失敗するユニットテストを書く
   - 正常な YAML を渡したときに、`AppConfig` が gdrive / gmail / upload の全フィールドを保持して返ることを期待するテストを書く
   - ファイル不在 / YAML パース失敗 / 必須キー欠落 / 型不一致 (`upload.drive` を文字列にする等) / `upload.drive` と `upload.photos` の両 false で `AppConfigError` が送出されることを期待するテストを書く
   - エラーメッセージにファイルパスや欠落キー名が含まれることをアサーションする
