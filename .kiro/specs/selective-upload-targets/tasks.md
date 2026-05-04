@@ -50,7 +50,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Requirements: 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 4.2_
   - _Boundary: LocalUploadGate_
 
-- [ ] 3.2 process_pending に UploadTargets ゲートを実装して green にする
+- [x] 3.2 process_pending に UploadTargets ゲートを実装して green にする
   - `process_pending` のシグネチャに `upload_targets: UploadTargets` を必須引数として追加
   - `upload_targets.drive` が True の場合のみ Drive subfolder 解決 + `upload_file_to_folder` を呼ぶ
   - `upload_targets.photos` が True の場合のみ Photos uploader を呼ぶ

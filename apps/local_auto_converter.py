@@ -23,6 +23,7 @@ from typing import Callable, Optional
 
 sys.path.append('.')
 import google_photos_uploader as gphotos  # noqa: E402
+from app_config import UploadTargets  # noqa: E402
 from gdrive_service import GDriveService  # noqa: E402
 from local_input import (  # noqa: E402
     derive_output_names,
@@ -60,13 +61,19 @@ def process_pending(
     drive_parent_id: str,
     gs,
     sdk_runner: SdkRunner,
+    upload_targets: UploadTargets,
     photos_uploader: PhotosUploader = gphotos.upload_to_album,
     split_outputs: Optional[list[str]] = None,
 ) -> None:
-    """1 件分の処理: SDK 変換 → Drive / Photos 両方にアップロード → 完了マーカー。
+    """1 件分の処理: SDK 変換 → 有効なアップロード先のみ上げる → 完了マーカー。
 
     `sdk_runner` はテスト時に差し替え可能。本番では `_run_sdk_and_inject_metadata` を渡す。
     `split_outputs` は動画分割後のファイル名リスト (None の場合は単一 `output_name` を使う)。
+    `upload_targets` は Drive / Photos の on/off を保持する `UploadTargets` 値オブジェクト。
+    `upload_targets.drive == True` のときのみ Drive 系呼出 (`get_or_create_subfolder` /
+    `upload_file_to_folder`) を行い、`upload_targets.photos == True` のときのみ
+    `photos_uploader(...)` を呼ぶ。**有効な上げ先がすべて成功したときのみ** `.done` を残す
+    (失敗時は例外を伝播し、次の周回で再試行する)。
     """
     left: Path = pending["left"]
     img = pending["is_image"]
@@ -84,16 +91,21 @@ def process_pending(
         outputs = split_outputs if split_outputs is not None else [output_name]
         mimetype = "video/mp4"
 
-    # 3. Drive: アルバム名のサブフォルダを取得 (なければ作成) → アップロード
-    drive_subfolder = gs.get_or_create_subfolder(drive_parent_id, album_name)
+    # 3. Drive (toggle on のときのみ): アルバム名のサブフォルダを取得 (なければ作成)
+    drive_subfolder = None
+    if upload_targets.drive:
+        drive_subfolder = gs.get_or_create_subfolder(drive_parent_id, album_name)
 
-    # 4. 各出力を Drive と Photos の両方に上げる
+    # 4. 各出力を有効な先のみに上げる。
+    #    どこかで例外が出れば伝播し、`mark_done` には到達しない (再試行可能な状態を保つ)。
     for out_name in outputs:
-        out_path = f"{working_folder}/{out_name}"
-        gs.upload_file_to_folder(out_path, drive_subfolder, mimetype)
-        photos_uploader(out_path, album_name)
+        out_path = "{}/{}".format(working_folder, out_name)
+        if upload_targets.drive:
+            gs.upload_file_to_folder(out_path, drive_subfolder, mimetype)
+        if upload_targets.photos:
+            photos_uploader(out_path, album_name)
 
-    # 5. すべて成功したらマーカーを残す (失敗していたらここに到達しない)
+    # 5. 有効な上げ先がすべて成功したらマーカーを残す。
     mark_done(left)
 
 
@@ -216,12 +228,15 @@ def main():
                     outputs_holder["outputs"] = outs
 
                 # is_image なら outputs はそのまま [output_name]、動画は split_outputs を渡す
+                # NOTE: upload_targets は task 4.3 で main() を YAML 経由に置き換えるまでの
+                #       暫定シム。現状は既存挙動 (Drive + Photos 両方上げる) を保つ。
                 process_pending(
                     pending=pending,
                     working_folder=working_folder,
                     drive_parent_id=drive_parent_id,
                     gs=gs,
                     sdk_runner=_runner,
+                    upload_targets=UploadTargets(drive=True, photos=True),
                     split_outputs=outputs_holder.get("outputs") if not pending["is_image"] else None,
                 )
                 processed = True
