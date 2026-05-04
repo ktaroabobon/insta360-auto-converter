@@ -55,15 +55,19 @@ env/allow:
 # ================================================
 .PHONY: lint
 lint:
-	uv run ruff check apps scripts
+	uv run ruff check apps scripts tests
 
 .PHONY: lint/fix
 lint/fix:
-	uv run ruff check --fix apps scripts
+	uv run ruff check --fix apps scripts tests
 
 .PHONY: syntax
 syntax:
 	uv run python -m compileall -q apps
+
+.PHONY: test
+test:
+	uv run pytest
 
 # ================================================
 # アプリ実行（ローカル）
@@ -91,12 +95,26 @@ docker/build:
 
 .PHONY: docker/run
 docker/run:
-	@echo "Docker コンテナを起動中: $(DOCKER_CONTAINER_NAME)"
+	@echo "Docker コンテナを起動中 (Drive モード): $(DOCKER_CONTAINER_NAME)"
 	@echo "  データディレクトリ: $(INSTA360_DATA_DIR)"
 	$(DOCKER) run -d \
 		--name $(DOCKER_CONTAINER_NAME) \
 		-v $(INSTA360_DATA_DIR):/insta360-auto-converter-data \
 		$(DOCKER_IMAGE_NAME)
+	@echo "Docker コンテナが起動しました！"
+
+# ローカル入力モード: $(INSTA360_DATA_DIR)/local-input/<アルバム名>/ に置いた raw を
+# 監視して Drive と Photos の両方にアップロードする。
+.PHONY: docker/run/local
+docker/run/local:
+	@echo "Docker コンテナを起動中 (ローカル入力モード): $(DOCKER_CONTAINER_NAME)"
+	@echo "  データディレクトリ: $(INSTA360_DATA_DIR)"
+	@echo "  ローカル入力ディレクトリ: $(INSTA360_DATA_DIR)/local-input"
+	$(DOCKER) run -d \
+		--name $(DOCKER_CONTAINER_NAME) \
+		-v $(INSTA360_DATA_DIR):/insta360-auto-converter-data \
+		$(DOCKER_IMAGE_NAME) \
+		python local_auto_converter.py
 	@echo "Docker コンテナが起動しました！"
 
 .PHONY: docker/logs
@@ -140,7 +158,7 @@ docker/rebuild:
 # ================================================
 .PHONY: help
 help:
-	@echo "insta360-auto-converter - Insta360 .insv/.insp を Google Photos / YouTube に自動変換・アップロード"
+	@echo "insta360-auto-converter - Insta360 .insv/.insp を Google Drive / Photos に自動変換・アップロード"
 	@echo ""
 	@echo "Usage: make [COMMAND]"
 	@echo ""
@@ -155,17 +173,19 @@ help:
 	@echo "    lock                 uv lock で uv.lock を更新"
 	@echo "    env/check            .envrc と .envrc.sample のキー差分をチェック"
 	@echo "    env/allow            direnv allow を実行"
-	@echo "    lint                 ruff check で apps/scripts を lint (CI と同じ)"
+	@echo "    lint                 ruff check で apps/scripts/tests を lint (CI と同じ)"
 	@echo "    lint/fix             ruff check --fix で自動修正"
 	@echo "    syntax               python -m compileall で apps/ の構文チェック"
+	@echo "    test                 pytest でユニットテストを実行 (CI と同じ)"
 	@echo ""
 	@echo "  ローカル実行（参考: 通常は Docker 内で動作させる）:"
-	@echo "    run                  apps/insta360_auto_converter.py を直接実行"
+	@echo "    run                  apps/insta360_auto_converter.py を直接実行 (Drive モード)"
 	@echo "    refresh-gphotos      Google Photos の OAuth 認証を更新"
 	@echo ""
 	@echo "  Docker:"
 	@echo "    docker/build         Docker イメージをビルド"
-	@echo "    docker/run           Docker コンテナを起動（INSTA360_DATA_DIR をマウント）"
+	@echo "    docker/run           Docker コンテナを起動 (Drive モード, INSTA360_DATA_DIR をマウント)"
+	@echo "    docker/run/local     Docker コンテナを起動 (ローカル入力モード)"
 	@echo "    docker/logs          Docker コンテナのログを追従"
 	@echo "    docker/exec          Docker コンテナに bash で入る"
 	@echo "    docker/stop/d        Docker コンテナを停止・削除"

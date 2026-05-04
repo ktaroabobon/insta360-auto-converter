@@ -30,10 +30,13 @@ jobs:
         run: uv sync --frozen --group dev
 
       - name: Lint (ruff)
-        run: uv run ruff check apps scripts
+        run: uv run ruff check apps scripts tests
 
       - name: Syntax check (compileall)
         run: uv run python -m compileall -q apps
+
+      - name: Tests (pytest)
+        run: uv run pytest
 
   shell:
     name: Shell scripts (shellcheck)

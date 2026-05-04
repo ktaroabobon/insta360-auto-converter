@@ -2,7 +2,12 @@
 
 [![CI](https://github.com/ktaroabobon/insta360-auto-converter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ktaroabobon/insta360-auto-converter/actions/workflows/ci.yml)
 
-Insta360 が出力する `.insv` / `.insp` ファイルを Google Drive から自動で取得して 360 動画 (mp4) / 写真 (jpg) に変換し、Google Photos と YouTube にアップロードする自動化パイプライン。
+Insta360 が出力する `.insv` / `.insp` ファイルを 360 動画 (mp4) / 写真 (jpg) に変換し、**Google Drive と Google Photos の両方** にアップロードする自動化パイプライン。
+
+入力源として 2 つのモードがある:
+
+1. **Drive モード** (`apps/insta360_auto_converter.py`): Google Drive の作業フォルダに raw を置くと、コンテナが polling して変換 → Photos アルバムに上げる
+2. **ローカル入力モード** (`apps/local_auto_converter.py`): ホスト側のローカルディレクトリ (`$INSTA360_DATA_DIR/local-input/<アルバム名>/`) に raw を置くと、コンテナが polling して **Drive サブフォルダ + Photos アルバム** の両方に上げる
 
 ![image](https://user-images.githubusercontent.com/23136724/99520953-bfa20400-29ce-11eb-9d28-5244a4614edc.png)
 
@@ -51,7 +56,9 @@ insta360-auto-converter
 insta360-auto-converter-data   # ホスト側のどこかに配置（マウント対象）
 ├── auto-conversion.json
 ├── configs.txt
-└── gphotos_auth.json
+├── gphotos_auth.json
+└── local-input/               # ローカル入力モード用 (任意)
+    └── <アルバム名>/            # ここに .insv / .insp を置くと自動アップロード
 ```
 
 ### 3. 開発環境の初期化
@@ -81,8 +88,11 @@ export INSTA360_DATA_DIR=$HOME/Documents/insta360-auto-converter-data
 # Docker イメージをビルド
 make docker/build
 
-# コンテナを起動（INSTA360_DATA_DIR が /insta360-auto-converter-data にマウントされる）
+# Drive モードで起動 (Drive 上の作業フォルダを polling)
 make docker/run
+
+# ローカル入力モードで起動 ($INSTA360_DATA_DIR/local-input を polling)
+make docker/run/local
 
 # ログを追従
 make docker/logs
@@ -96,13 +106,23 @@ make docker/rebuild/d
 
 `make help` で全ターゲットの一覧を確認できる。
 
-## ファイル配置のしかた（Google Drive 側）
+## ファイル配置のしかた
+
+### Drive モード (Google Drive 側)
 
 1. Google Drive のセットアップ手順で作成した「作業フォルダ」配下に、`.insv` / `.insp` を入れたサブフォルダをアップロードする。
 2. 自動コンバータが、Google Photos のアルバム名としてそのサブフォルダ名を使い mp4 / jpg をアップロードする。
 3. 例: 作業フォルダが `inst360_autoflow` の場合、`測試1_360raw` などのサブフォルダを作って `.insv` / `.insp` を入れる。
 
 ![image](https://user-images.githubusercontent.com/23136724/99519497-ec551c00-29cc-11eb-9a3b-c6cdc212a805.png)
+
+### ローカル入力モード (ホスト側ディレクトリ)
+
+1. `$INSTA360_DATA_DIR/local-input/<アルバム名>/` に `.insv` / `.insp` を置く (例: `local-input/trip-2026-04/VID_*_00_*.insv`)。
+2. `make docker/run/local` で起動したコンテナがディレクトリを polling し、変換後に **Drive (working folder 配下に同名サブフォルダを自動作成) と Google Photos アルバム** の両方にアップロードする。
+3. 完了したファイルには `<元ファイル名>.done` マーカーが置かれ、次回以降スキップされる (再処理したい場合はマーカーを削除)。
+
+`INSTA360_LOCAL_INPUT_ROOT` 環境変数で監視ディレクトリを上書き可能 (デフォルト: `/insta360-auto-converter-data/local-input`)。
 
 ## マルチプロセス
 
@@ -135,8 +155,10 @@ make docker/rebuild/d
 ```
 insta360-auto-converter
 ├── apps/                     # Python アプリ本体
+├── tests/                    # pytest ユニットテスト
 ├── scripts/                  # 補助スクリプト（envrc 差分チェック等）
 ├── .kiro/                    # Kiro 仕様駆動開発用
+├── .github/workflows/        # GitHub Actions CI
 ├── Dockerfile                # uv ベースの実行イメージ
 ├── Makefile                  # 開発・運用ターゲット
 ├── mise.toml                 # Python 3.11 + uv ピン
@@ -144,6 +166,14 @@ insta360-auto-converter
 ├── uv.lock                   # 依存ロック
 ├── .envrc.sample             # direnv のサンプル
 └── .dockerignore
+```
+
+### テスト
+
+`tests/` 配下に pytest 形式のユニットテストを置く。**今後の実装はすべて TDD で進める** (詳細は `.kiro/steering/testing.md`)。
+
+```bash
+make test          # uv run pytest
 ```
 
 ## バグ修正リリースノート

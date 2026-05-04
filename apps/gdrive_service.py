@@ -29,6 +29,16 @@ class GDriveService:
         root_folder = self.service.files().create(body=body).execute()
         return root_folder['id']
 
+    def get_or_create_subfolder(self, parent_dir_id, folder_name):
+        # parent_dir_id 配下に folder_name のサブフォルダがあればそれを返し、無ければ作成する。
+        # ローカル入力モードで「アルバム名 = Drive 上のサブフォルダ名」をマッピングするのに使う。
+        existing = self.retrieve_all_in_folder(parent_dir_id)
+        for f in existing:
+            if f.get('name') == folder_name and 'folder' in f.get('mimeType', ''):
+                return f
+        new_id = self.createRemoteFolder(folder_name, parent_dir_id)
+        return {'id': new_id, 'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}
+
     def upload_file_to_folder(self, local_file_path, parent_dir, mimetype):
         output_file_name = os.path.basename(local_file_path)
         file_metadata = {'name': output_file_name, 'parents': [parent_dir['id']]}
