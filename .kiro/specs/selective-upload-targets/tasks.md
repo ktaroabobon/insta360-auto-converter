@@ -71,7 +71,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Requirements: 3.1, 3.4, 4.3_
   - _Boundary: UtilsMailConsumer_
 
-- [ ] 4.2 (P) DriveModeConfigConsumer の Drive ID 読込を AppConfigLoader 経由にする
+- [x] 4.2 (P) DriveModeConfigConsumer の Drive ID 読込を AppConfigLoader 経由にする
   - `apps/insta360_auto_converter.py` のモジュールロード時 `ConfigParser` 関連を削除し、`load_app_config()` 由来の `AppConfig.gdrive` を main() で参照する
   - `[GDRIVE_INFO]` の参照箇所すべてを `_app_config.gdrive.drive_id` / `_app_config.gdrive.working_folder_id` に置換する
   - 動作 (Drive モードのアップロード先や フラグファイル運用) を一切変更しない

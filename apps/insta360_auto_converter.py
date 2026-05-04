@@ -12,6 +12,7 @@ from configparser import ConfigParser
 from subprocess import Popen, PIPE
 
 sys.path.append('.')
+from app_config import load_app_config
 from gdrive_service import GDriveService
 import google_photos_uploader as gphotos
 from utils import log
@@ -19,9 +20,13 @@ from utils import silentremove
 from video_processor import VideoProcessor
 
 
-config = ConfigParser()
-config.read("/insta360-auto-converter-data/configs.txt")
+# YAML 設定を起動時 (モジュールロード時) に 1 度だけロードする。
+# 不在 / パース失敗 / 必須キー欠落の場合は AppConfigError で即座に落ちる (フェイルファスト)。
+# テスト時は conftest.py が `INSTA360_CONFIGS_PATH` を tmp YAML に向ける。
+_app_config = load_app_config()
 
+# `apps/in_app_configs.conf` はリポジトリ管理のアプリ内デフォルト (運用者編集対象外) で、
+# 本 spec の YAML 移行 boundary 外。引き続き ConfigParser で読み込む。
 in_app_confs = ConfigParser()
 in_app_confs.read("/insta360-auto-converter/apps/in_app_configs.conf")
 
@@ -43,7 +48,7 @@ def main():
         try:
             # 1. google drive init
             cred_path = '/insta360-auto-converter-data/auto-conversion.json'
-            drive_id = config["GDRIVE_INFO"]["drive_id"]
+            drive_id = _app_config.gdrive.drive_id
             try:
                 gs = GDriveService(cred_path, drive_id)
             except Exception as e:
@@ -51,7 +56,7 @@ def main():
 
             # 2. get all rawdata folders under the "insta360_autoflow folder"
             try:
-                insta360_autoflow_folder_id = config["GDRIVE_INFO"]["working_folder_id"]
+                insta360_autoflow_folder_id = _app_config.gdrive.working_folder_id
                 all_folders = gs.retrieve_all_in_folder(insta360_autoflow_folder_id)
                 all_folders = list(filter(lambda x: 'folder' in x['mimeType'], all_folders))
             except Exception as e:
