@@ -4,7 +4,7 @@
 # Insta360 Media SDK（NDA 対象、別途取得して配置する）
 MediaSDK/
 
-# 認証情報・configs.txt などを置くデータディレクトリ
+# 認証情報・configs.yaml などを置くデータディレクトリ
 insta360-auto-converter-data/
 
 # =============================================

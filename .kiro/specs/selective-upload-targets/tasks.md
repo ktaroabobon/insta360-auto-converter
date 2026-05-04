@@ -103,7 +103,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Requirements: 3.6, 5.2_
   - _Boundary: ConfigSampleAndDocs_
 
-- [ ] 5.2 (P) README に YAML 移行手順セクションを追加し、INI 言及を整理する
+- [x] 5.2 (P) README に YAML 移行手順セクションを追加し、INI 言及を整理する
   - README に "Migrating from configs.txt to configs.yaml" セクションを新設し、INI セクション → YAML キーの対照表 (`research.md` I2 と同等) と、`[YOUTUBE_SETTINGS]` 廃棄、`upload.*` 新規キー、両 false 禁止のルールを明記する
   - `.envrc.sample` および operator-facing docs に残る `configs.txt` 言及を `configs.yaml` に書き換えるか、不要な記述は削除する
   - ハードコードパスの規約 (`/insta360-auto-converter-data/configs.yaml`) を docs 上で 1 箇所のみに集約する

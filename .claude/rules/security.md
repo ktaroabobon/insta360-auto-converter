@@ -18,7 +18,7 @@
 - **認証情報ファイルは `/insta360-auto-converter-data/` 配下にのみ置く**:
   - `auto-conversion.json` — Drive サービスアカウント鍵
   - `gphotos_auth.json` — Photos OAuth トークン
-  - `configs.txt` — Drive ID, Gmail パスワード等
+  - `configs.yaml` — Drive ID, Gmail パスワード等 (旧 `configs.txt` から YAML 化済み)
 - これらは `.gitignore` で `insta360-auto-converter-data/` ごと除外済み
 
 ## NDA 配布バイナリ
@@ -55,7 +55,7 @@
 ## 運用時の通知
 
 - `log(msg, mail_out=True)` で Gmail SMTP からアラートメールが飛ぶ
-- `configs.txt` の `[GMAIL_INFO]` が認証情報。**SMTP パスワードを Slack や PR に貼らない**
+- `configs.yaml` の `gmail` セクションが認証情報。**SMTP パスワードを Slack や PR に貼らない**
 
 ## クロステナント / 個人情報
 

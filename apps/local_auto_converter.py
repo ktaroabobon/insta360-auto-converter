@@ -2,12 +2,13 @@
 
 Drive をソースに使う既存の `insta360_auto_converter.py` と並列の役割を担うが、
 入力源が **ホスト側のローカルディレクトリ** (`/insta360-auto-converter-data/local-input/<アルバム名>/`)
-である点が異なる。アップロード先は **Drive (working folder 配下のサブフォルダ) と Photos の両方**。
+である点が異なる。アップロード先は `configs.yaml` の `upload.drive` / `upload.photos` で
+個別に on/off できる (両方 false は起動時にフェイルファスト)。
 
 完了マーカーは Drive ではなくローカルファイル `.done` で管理する (best-effort、再起動安全)。
 
-設定読み込み (`configs.txt`) と SDK バイナリ起動はモジュールロード時 / `main()` 内で行うため、
-本ファイルを **テスト用に import** する場合でも副作用が走らないように、import 時の I/O を最小化している。
+設定読み込み (`configs.yaml` を `apps/app_config.py` 経由で `main()` 冒頭で実行) と SDK バイナリ
+起動は副作用が大きいため、本ファイルを **テスト用に import** する場合でも import 時の I/O を最小化している。
 """
 from __future__ import annotations
 
