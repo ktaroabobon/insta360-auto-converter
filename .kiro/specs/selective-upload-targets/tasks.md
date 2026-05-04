@@ -30,7 +30,7 @@ test 用語と impl 用語を明確に分離し、test 先行を必須とする 
   - _Requirements: 1.1, 1.6, 3.1, 3.2, 3.3, 3.4, 3.5_
   - _Boundary: AppConfigLoader_
 
-- [ ] 2.2 AppConfigLoader を最小実装で green にする
+- [x] 2.2 AppConfigLoader を最小実装で green にする
   - 不変な dataclass (GdriveConfig / GmailConfig / UploadTargets / AppConfig) と `AppConfigError` を定義する
   - YAML を `safe_load` で読み、必須キー (`gdrive.drive_id`, `gdrive.working_folder_id`, `gmail.address`, `gmail.password`, `gmail.error_mail_to`, `upload.drive`, `upload.photos`) を 1 つでも欠けたら欠落キー名を含む `AppConfigError` を raise する
   - `upload.drive` と `upload.photos` の bool 型チェック、両 false の組合せ検出を行う
