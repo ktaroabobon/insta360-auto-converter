@@ -18,8 +18,10 @@ __pycache__/
 # データディレクトリ（コンテナ起動時に -v でマウントするため不要）
 insta360-auto-converter-data/
 
-# Kiro / IDE
+# Kiro / IDE / Claude Code
 .kiro/
+.claude/
+CLAUDE.md
 .vscode/
 .idea/
 
