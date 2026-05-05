@@ -1,22 +1,22 @@
 # syntax=docker/dockerfile:1.7
 
 # uv 公式イメージから uv バイナリだけ取得
-FROM ghcr.io/astral-sh/uv:latest AS uv
+FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:latest AS uv
 
-FROM ubuntu:focal
-
-# Insta360 MediaSDK が要求する libssl1.0-dev は focal にないため bionic-security を追加
-RUN echo "deb http://security.ubuntu.com/ubuntu bionic-security main" >> /etc/apt/sources.list
+# MediaSDK 3.1.1 は amd64 専用配布のため、Apple Silicon ホストでも
+# linux/amd64 を強制ビルド (Rosetta / qemu でエミュレートされる)
+FROM --platform=linux/amd64 ubuntu:focal
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # システム依存をまとめてインストール
+# 旧 MediaSDK が要求した libssl1.0-dev は MediaSDK 3.1.1 では不要
+# (新 SDK が libssl.so.1.1 / libcrypto.so.1.1 を MediaSDK/lib/ にバンドル)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
         ffmpeg \
         libimage-exiftool-perl \
-        libssl1.0-dev \
         vim \
     && rm -rf /var/lib/apt/lists/*
 
