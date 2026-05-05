@@ -52,7 +52,8 @@ RUN g++ -Wno-error -std=c++11 example/main.cc \
         -o stitcherSDKDemo \
         -I/insta360-auto-converter/MediaSDK/include/ \
         -L/insta360-auto-converter/MediaSDK/lib/ \
-        -lMediaSDK
+        -lMediaSDK \
+        -lpthread
 
 WORKDIR /insta360-auto-converter/apps
 CMD ["python", "insta360_auto_converter.py"]
