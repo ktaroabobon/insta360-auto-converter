@@ -19,14 +19,18 @@ IMAGE_OUTPUT_SIZE = "6080x3040"
 VIDEO_BITRATE = "200000000"
 
 # stitch_type:
-# - dynamicstitch: 写真 / 動画とも実機 (Mac+Docker emulation) でフレーム描画ができる
-# - aistitch: Insta360 公式は X5 で推奨 (`ai_stitcher_v2.ins` 使用) だが NVIDIA CUDA 必須。
-#   開発環境 (Mac + Docker linux/amd64 emulation) では空 mp4 を吐くため切替を見送り。
-#   本番 Linux + NVIDIA GPU 環境で再評価する余地あり (将来 issue 化検討)。
-VIDEO_STITCH_TYPE = "dynamicstitch"
+# - 動画は `aistitch` を使う。Insta360 公式が X5 dual-lens で推奨する `ai_stitcher_v2.ins`
+#   を `-model_root_dir` 配下から参照させる前提。aistitch は **NVIDIA CUDA 11.7 + libnvcuvid 必須** で、
+#   GPU 非搭載環境 (Mac / linux/amd64 emulation) では出力 mp4 が空 (48 byte) になる。
+#   `INSTA360_GPU=1 make docker/run/local` で `--gpus all` を付けて起動する前提運用。
+# - 写真 (`.insp`) は引き続き `dynamicstitch`。ImageStitcher は dual-lens stitching を伴わず
+#   PR #10 / PR #12 の Mac Docker 実機検証で正常出力が確認済みのため、aistitch に切り替える
+#   メリットが無い (X5 の写真も `_00_*.insp` 単独で `dynamicstitch` で破綻しないことを検証済)。
+VIDEO_STITCH_TYPE = "aistitch"
 IMAGE_STITCH_TYPE = "dynamicstitch"
 
-# AI stitching を選択した場合のモデルファイル root。dynamicstitch でも副作用なく渡せる。
+# AI stitching が `ai_stitcher_v2.ins` 等を読みに行く root。dynamicstitch では SDK が無視するため
+# 写真側に渡しても副作用なし (画像と動画で同じコマンド組み立て関数を共有するため常時付与する)。
 SDK_MODEL_ROOT_DIR = "/insta360-auto-converter/MediaSDK/models"
 
 # vendored ツールの実行コマンド

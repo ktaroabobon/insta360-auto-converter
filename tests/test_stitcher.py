@@ -72,6 +72,25 @@ class TestBuildCommandVideo:
         )
         assert "-enable_flowstate" not in cmd
 
+    def test_video_uses_aistitch(self):
+        """動画は X5 dual-lens 対応のため `aistitch` (CUDA 必須) を使う。
+
+        - ONE X (`_10_` ペア有り) の動画でも aistitch を使う (写真と挙動を揃え dual-lens 経路を統一)
+        - GPU 環境前提 (`INSTA360_GPU=1`) の運用で `ai_stitcher_v2.ins` を model_root_dir 配下から読む
+        - 写真側の `dynamicstitch` は `TestBuildCommandImage::test_image_keeps_dynamicstitch` で別途検証
+        """
+        cmd = stitcher.build_command(
+            sdk_path=SDK,
+            working_folder=WORK,
+            left_name="VID_00.insv",
+            right_name="VID_10.insv",
+            convert_name="VID_00_convert.mp4",
+            is_image=False,
+            stabilize=True,
+        )
+        assert "aistitch" in cmd
+        assert "dynamicstitch" not in cmd
+
 
 class TestBuildCommandVideoSingleEye:
     """Insta360 X5 形式: `_00_` 単独動画 (`right_name=None`) を許可する (Issue #9)。
@@ -96,10 +115,10 @@ class TestBuildCommandVideoSingleEye:
         assert f"{WORK}/VID_20260506_114009_00_161.insv" in cmd
         # `_10_` 入力は一切登場しない
         assert not any("_10_" in arg for arg in cmd)
-        # 動画扱い: 5760x2880 + bitrate 200000000 + dynamicstitch
+        # 動画扱い: 5760x2880 + bitrate 200000000 + aistitch (X5 公式推奨、CUDA 必須)
         assert "5760x2880" in cmd
         assert "200000000" in cmd
-        assert "dynamicstitch" in cmd
+        assert "aistitch" in cmd
         # stabilize=True なら flowstate 有効
         assert "-enable_flowstate" in cmd
         # 出力先

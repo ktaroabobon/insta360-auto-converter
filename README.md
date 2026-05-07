@@ -143,6 +143,11 @@ make docker/rebuild/d
 
 Insta360 MediaSDK は **NVIDIA CUDA 11.7 + libnvcuvid** を要求する。GPU 非搭載環境 (Mac / linux/amd64 emulation) では SDK の dual-lens stitching が動かず、出力が dual-fisheye SBS のままになる。**動画パイプライン全体を正しく動かすには NVIDIA GPU 環境が必須**。本セクションは Windows 11 + WSL2 + RTX 系 GPU を想定したセットアップ手順。
 
+### stitch_type の使い分け (`apps/stitcher.py`)
+
+- **動画**: `aistitch` (X5 公式推奨、`MediaSDK/models/ai_stitcher_v2.ins` を `-model_root_dir` 経由で参照)。CUDA 必須で、GPU 不在では出力 mp4 が空になる。
+- **写真**: `dynamicstitch` (ImageStitcher は dual-lens stitching を伴わず CPU emulation でも動作する。X5 / ONE X 双方の `_00_*.insp` で実機検証済)。
+
 ### 前提
 
 - Windows 11 + WSL2 (Ubuntu 22.04 / 24.04 推奨)
