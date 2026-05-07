@@ -72,12 +72,15 @@ class TestBuildCommandVideo:
         )
         assert "-enable_flowstate" not in cmd
 
-    def test_video_uses_aistitch(self):
-        """動画は X5 dual-lens 対応のため `aistitch` (CUDA 必須) を使う。
+    def test_video_uses_dynamicstitch(self):
+        """動画 / 写真とも `dynamicstitch` を使う。
 
-        - ONE X (`_10_` ペア有り) の動画でも aistitch を使う (写真と挙動を揃え dual-lens 経路を統一)
-        - GPU 環境前提 (`INSTA360_GPU=1`) の運用で `ai_stitcher_v2.ins` を model_root_dir 配下から読む
-        - 写真側の `dynamicstitch` は `TestBuildCommandImage::test_image_keeps_dynamicstitch` で別途検証
+        - aistitch (X5 公式推奨) は MediaSDK 3.1.1 の libMediaSDK.so に
+          `SetAiStitchModelFile` シンボルが存在せず、example/main.cc も同 API を呼ばないため、
+          `-stitch_type aistitch` でも model 適用が走らず WSL2+RTX 3070 環境で
+          全フレーム真っ黒の equirectangular mp4 が出力される (PR #12 E2E で実機確認)。
+        - dynamicstitch は CUDA 上で `arvrender::DynamicStitcher` が走り
+          equirectangular を生成する。`INSTA360_GPU=1` で GPU 経由必須。
         """
         cmd = stitcher.build_command(
             sdk_path=SDK,
@@ -88,8 +91,8 @@ class TestBuildCommandVideo:
             is_image=False,
             stabilize=True,
         )
-        assert "aistitch" in cmd
-        assert "dynamicstitch" not in cmd
+        assert "dynamicstitch" in cmd
+        assert "aistitch" not in cmd
 
 
 class TestBuildCommandVideoSingleEye:
@@ -115,10 +118,10 @@ class TestBuildCommandVideoSingleEye:
         assert f"{WORK}/VID_20260506_114009_00_161.insv" in cmd
         # `_10_` 入力は一切登場しない
         assert not any("_10_" in arg for arg in cmd)
-        # 動画扱い: 5760x2880 + bitrate 200000000 + aistitch (X5 公式推奨、CUDA 必須)
+        # 動画扱い: 5760x2880 + bitrate 200000000 + dynamicstitch (CUDA 必須、GPU で equirect)
         assert "5760x2880" in cmd
         assert "200000000" in cmd
-        assert "aistitch" in cmd
+        assert "dynamicstitch" in cmd
         # stabilize=True なら flowstate 有効
         assert "-enable_flowstate" in cmd
         # 出力先

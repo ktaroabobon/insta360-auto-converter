@@ -19,18 +19,22 @@ IMAGE_OUTPUT_SIZE = "6080x3040"
 VIDEO_BITRATE = "200000000"
 
 # stitch_type:
-# - 動画は `aistitch` を使う。Insta360 公式が X5 dual-lens で推奨する `ai_stitcher_v2.ins`
-#   を `-model_root_dir` 配下から参照させる前提。aistitch は **NVIDIA CUDA 11.7 + libnvcuvid 必須** で、
-#   GPU 非搭載環境 (Mac / linux/amd64 emulation) では出力 mp4 が空 (48 byte) になる。
-#   `INSTA360_GPU=1 make docker/run/local` で `--gpus all` を付けて起動する前提運用。
-# - 写真 (`.insp`) は引き続き `dynamicstitch`。ImageStitcher は dual-lens stitching を伴わず
-#   PR #10 / PR #12 の Mac Docker 実機検証で正常出力が確認済みのため、aistitch に切り替える
-#   メリットが無い (X5 の写真も `_00_*.insp` 単独で `dynamicstitch` で破綻しないことを検証済)。
-VIDEO_STITCH_TYPE = "aistitch"
+# - 動画 / 写真とも `dynamicstitch`。
+#   - aistitch は Insta360 公式 X5 推奨だが MediaSDK 3.1.1 (本リポジトリ同梱) の
+#     example/main.cc + libMediaSDK.so のシンボルセットには `SetAiStitchModelFile`
+#     が無く、`SetStitchType(AIFLOW)` + `SetModelFileRootDir(...)` だけでは
+#     model 適用が走らず WSL2 + RTX 3070 環境で出力 mp4 が equirectangular 形状の
+#     「全フレーム真っ黒」になることを実機検証で確認 (#9 / PR #12 E2E)。
+#     aistitch を使うには SDK example の main.cc にカスタム glue を追加してビルドする
+#     必要があり、本 PR スコープ外 (将来 issue 化)。
+#   - dynamicstitch は CUDA 上で DynamicStitcher が動き equirectangular を生成する。
+#     Mac / 非 GPU 環境では `flow estimator failed` で dual-fisheye SBS のまま落ちるが、
+#     `INSTA360_GPU=1` で GPU 通せば正常動作する想定 (本 PR で検証)。
+VIDEO_STITCH_TYPE = "dynamicstitch"
 IMAGE_STITCH_TYPE = "dynamicstitch"
 
-# AI stitching が `ai_stitcher_v2.ins` 等を読みに行く root。dynamicstitch では SDK が無視するため
-# 写真側に渡しても副作用なし (画像と動画で同じコマンド組み立て関数を共有するため常時付与する)。
+# `-model_root_dir` は dynamicstitch では SDK 側で無視されるが、将来 aistitch に切り替えた際に
+# `ai_stitcher_v2.ins` 等を参照する root として常時渡しておく (副作用なし)。
 SDK_MODEL_ROOT_DIR = "/insta360-auto-converter/MediaSDK/models"
 
 # vendored ツールの実行コマンド

@@ -143,10 +143,11 @@ make docker/rebuild/d
 
 Insta360 MediaSDK は **NVIDIA CUDA 11.7 + libnvcuvid** を要求する。GPU 非搭載環境 (Mac / linux/amd64 emulation) では SDK の dual-lens stitching が動かず、出力が dual-fisheye SBS のままになる。**動画パイプライン全体を正しく動かすには NVIDIA GPU 環境が必須**。本セクションは Windows 11 + WSL2 + RTX 系 GPU を想定したセットアップ手順。
 
-### stitch_type の使い分け (`apps/stitcher.py`)
+### stitch_type について (`apps/stitcher.py`)
 
-- **動画**: `aistitch` (X5 公式推奨、`MediaSDK/models/ai_stitcher_v2.ins` を `-model_root_dir` 経由で参照)。CUDA 必須で、GPU 不在では出力 mp4 が空になる。
-- **写真**: `dynamicstitch` (ImageStitcher は dual-lens stitching を伴わず CPU emulation でも動作する。X5 / ONE X 双方の `_00_*.insp` で実機検証済)。
+動画 / 写真とも `dynamicstitch` (`STITCH_TYPE::DYNAMICSTITCH`) を使う。GPU 上では `arvrender::DynamicStitcher` が CUDA で動き equirectangular を生成する。GPU 不在環境では `flow estimator failed` で落ちて出力が dual-fisheye SBS のままになるため `INSTA360_GPU=1` 起動が事実上必須。
+
+aistitch (Insta360 公式は X5 で推奨) は MediaSDK 3.1.1 同梱の `example/main.cc` + `libMediaSDK.so` に `SetAiStitchModelFile` 系のシンボルが無く、`-stitch_type aistitch` だけでは model 適用が走らず出力 mp4 が「全フレーム真っ黒」になる (PR #12 / WSL2 + RTX 3070 で実機確認)。aistitch を有効化するには SDK example をカスタムビルドして `SetAiStitchModelFile("ai_stitcher_v2.ins")` を呼び出す追加実装が必要 (今後の課題)。
 
 ### 前提
 
