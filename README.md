@@ -139,6 +139,71 @@ make docker/rebuild/d
 
 `make help` で全ターゲットの一覧を確認できる。
 
+## NVIDIA GPU で動かす (WSL2 / Linux)
+
+Insta360 MediaSDK は **NVIDIA CUDA 11.7 + libnvcuvid** を要求する。GPU 非搭載環境 (Mac / linux/amd64 emulation) では SDK の dual-lens stitching が動かず、出力が dual-fisheye SBS のままになる。**動画パイプライン全体を正しく動かすには NVIDIA GPU 環境が必須**。本セクションは Windows 11 + WSL2 + RTX 系 GPU を想定したセットアップ手順。
+
+### 前提
+
+- Windows 11 + WSL2 (Ubuntu 22.04 / 24.04 推奨)
+- NVIDIA GPU (RTX 30/40 系など、CUDA Compute Capability 8.x 以上)
+- NVIDIA Windows ドライバ (Game Ready / Studio どちらでも、ver 470+)
+- Docker Desktop for Windows (4.x 以降、WSL2 backend integration ON)
+
+### セットアップ確認
+
+WSL2 ターミナルで以下が成功すれば下準備 OK:
+
+```bash
+# 1. ホストで GPU 認識
+nvidia-smi
+
+# 2. Docker → コンテナ → GPU パススルーが通る
+docker run --rm --gpus all nvidia/cuda:11.7.0-base-ubuntu22.04 nvidia-smi
+```
+
+Docker Desktop 4.x は **NVIDIA Container Toolkit を内蔵** しているので、追加 install 不要で `--gpus all` が即使える。手動で `nvidia-container-toolkit` を入れる必要はない (詳細: [NVIDIA CUDA on WSL User Guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html))。
+
+### 起動
+
+`INSTA360_GPU=1` を付けるだけ:
+
+```bash
+# ローカル入力モードを GPU 有効で起動
+INSTA360_GPU=1 make docker/run/local
+
+# Drive モードも同様
+INSTA360_GPU=1 make docker/run
+```
+
+未指定 (Mac / GPU 無し環境) では `--gpus all` は付かないので副作用なし。
+
+### 動作確認
+
+GPU が正しく通っているか確認:
+
+```bash
+make docker/exec
+# コンテナ内で
+nvidia-smi      # ホスト GPU が見えれば OK
+ls /usr/lib/x86_64-linux-gnu/libnvcuvid.so.1   # NVIDIA Container Toolkit が host から注入する
+```
+
+X5 動画を `local-input/<アルバム名>/` に置いてしばらく待ったあと、`docker exec insta360-auto-converter ls /insta360-auto-converter/apps/*.mp4` で出力 mp4 が生成されているか確認。フレームを取り出して目視:
+
+```bash
+docker exec insta360-auto-converter python3 -c "from moviepy.editor import VideoFileClip; c=VideoFileClip('/insta360-auto-converter/apps/VID_xxx.mp4'); c.save_frame('/tmp/check.jpg', t=2.0)"
+docker cp insta360-auto-converter:/tmp/check.jpg ./
+```
+
+正しく動いていれば `check.jpg` は **equirectangular** (横長 2:1、被写体が中央付近にも分布) になっているはず。**dual-fisheye が左右に並んだまま** だと SDK の stitching が走っていない (= GPU が通っていない or libnvcuvid が見えていない)。
+
+### トラブルシュート
+
+- **`nvidia-smi` が WSL2 で見えない** → Windows 側のドライバが古い、または WSL カーネルが古い (`wsl --update`)
+- **`docker run --gpus all` で `unknown flag` エラー** → Docker Desktop が古い、または WSL2 backend integration が OFF
+- **コンテナで `libnvcuvid.so.1: cannot open shared object`** → Docker Desktop の GPU 機能が無効。Settings > General > "Use the WSL 2 based engine" を確認
+
 ## ファイル配置のしかた
 
 ### Drive モード (Google Drive 側)

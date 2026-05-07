@@ -11,6 +11,17 @@ DOCKER_CONTAINER_NAME ?= insta360-auto-converter
 # データディレクトリのデフォルト（.envrc で上書き推奨）
 INSTA360_DATA_DIR ?= $(CURDIR)/insta360-auto-converter-data
 
+# NVIDIA GPU 経由で SDK を動かすかのトグル。
+# `INSTA360_GPU=1 make docker/run/local` のように指定すると `--gpus all` が付く。
+# Insta360 MediaSDK は CUDA 11.7 + libnvcuvid を要求するため、GPU 非搭載環境
+# (Mac / linux/amd64 emulation) では SDK の dual-lens stitching が動かず出力が
+# dual-fisheye SBS のままになる (Issue #9 動作確認で判明)。
+# 本番想定: Linux + NVIDIA GPU (例: WSL2 + RTX 30/40 系) で `INSTA360_GPU=1` を有効化。
+# Docker Desktop 4.x + WSL2 backend は NVIDIA Container Toolkit を内蔵しているので
+# 追加 install 不要で `--gpus all` が通る。詳細は README の WSL2 セクション参照。
+INSTA360_GPU ?=
+DOCKER_GPU_FLAGS := $(if $(INSTA360_GPU),--gpus all,)
+
 # ================================================
 # 初期設定（おそらく、一度しか実行しないもの）
 # ================================================
@@ -97,8 +108,10 @@ docker/build:
 docker/run:
 	@echo "Docker コンテナを起動中 (Drive モード): $(DOCKER_CONTAINER_NAME)"
 	@echo "  データディレクトリ: $(INSTA360_DATA_DIR)"
+	@echo "  GPU: $(if $(INSTA360_GPU),enabled (--gpus all),disabled)"
 	$(DOCKER) run -d \
 		--name $(DOCKER_CONTAINER_NAME) \
+		$(DOCKER_GPU_FLAGS) \
 		-v $(INSTA360_DATA_DIR):/insta360-auto-converter-data \
 		$(DOCKER_IMAGE_NAME)
 	@echo "Docker コンテナが起動しました！"
@@ -110,8 +123,10 @@ docker/run/local:
 	@echo "Docker コンテナを起動中 (ローカル入力モード): $(DOCKER_CONTAINER_NAME)"
 	@echo "  データディレクトリ: $(INSTA360_DATA_DIR)"
 	@echo "  ローカル入力ディレクトリ: $(INSTA360_DATA_DIR)/local-input"
+	@echo "  GPU: $(if $(INSTA360_GPU),enabled (--gpus all),disabled)"
 	$(DOCKER) run -d \
 		--name $(DOCKER_CONTAINER_NAME) \
+		$(DOCKER_GPU_FLAGS) \
 		-v $(INSTA360_DATA_DIR):/insta360-auto-converter-data \
 		$(DOCKER_IMAGE_NAME) \
 		python local_auto_converter.py
@@ -190,6 +205,10 @@ help:
 	@echo "    docker/exec          Docker コンテナに bash で入る"
 	@echo "    docker/stop/d        Docker コンテナを停止・削除"
 	@echo "    docker/rebuild/d     停止 → ビルド → 起動 を一括実行"
+	@echo ""
+	@echo "  Docker GPU (Linux + NVIDIA GPU 環境のみ、例: WSL2 + RTX 系):"
+	@echo "    INSTA360_GPU=1 make docker/run/local   # --gpus all 付きで起動"
+	@echo "    詳細は README の \"NVIDIA GPU で動かす (WSL2 / Linux)\" を参照"
 	@echo ""
 	@echo "Examples:"
 	@echo ""
