@@ -19,7 +19,7 @@ def auth(scopes, cred_file):
 
 def get_authorized_session(auth_token_file):
 
-    scopes=['https://www.googleapis.com/auth/photoslibrary',
+    scopes=['https://www.googleapis.com/auth/photoslibrary.appendonly',
             'https://www.googleapis.com/auth/photoslibrary.sharing']
 
     cred = None
