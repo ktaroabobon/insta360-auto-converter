@@ -5,17 +5,23 @@ FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:latest AS uv
 
 # MediaSDK 3.1.1 は amd64 専用配布のため、Apple Silicon ホストでも
 # linux/amd64 を強制ビルド (Rosetta / qemu でエミュレートされる)
-FROM --platform=linux/amd64 ubuntu:focal
+# Ubuntu 22.04 (jammy) を選ぶ理由: 新 SDK は GLIBC 2.34/2.35 と
+# GLIBCXX_3.4.29 (gcc 11+) のシンボルを参照しており、focal (glibc 2.31 / gcc 9)
+# では link 段階で undefined reference が大量発生する。
+FROM --platform=linux/amd64 ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # システム依存をまとめてインストール
-# 旧 MediaSDK が要求した libssl1.0-dev は MediaSDK 3.1.1 では不要
-# (新 SDK が libssl.so.1.1 / libcrypto.so.1.1 を MediaSDK/lib/ にバンドル)
+# - libdc1394-dev / libegl-dev: libMediaSDK.so が DT_NEEDED で参照
+# - 旧 MediaSDK が要求した libssl1.0-dev は MediaSDK 3.1.1 では不要
+#   (新 SDK が libssl.so.1.1 / libcrypto.so.1.1 を MediaSDK/lib/ にバンドル)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
         ffmpeg \
+        libdc1394-dev \
+        libegl-dev \
         libimage-exiftool-perl \
         vim \
     && rm -rf /var/lib/apt/lists/*
