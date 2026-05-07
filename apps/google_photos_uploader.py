@@ -43,7 +43,7 @@ def auth(scopes, cred_file):
 
 def get_authorized_session(auth_token_file):
 
-    scopes=['https://www.googleapis.com/auth/photoslibrary',
+    scopes=['https://www.googleapis.com/auth/photoslibrary.appendonly',
             'https://www.googleapis.com/auth/photoslibrary.sharing']
 
     cred = None
@@ -111,27 +111,20 @@ def getAlbums(session, appCreatedOnly=False):
 
 
 def create_or_retrieve_album(session, album_title):
+    # QUICK PATCH (temporary): Photos API の getAlbums が photoslibrary.appendonly
+    # スコープでは PERMISSION_DENIED で落ちるため、毎回新規アルバムを作成する。
+    # 重複アルバムが量産されるので動作確認専用。長期運用には album_id キャッシュ実装が必要。
+    log("create_or_retrieve_album (quick-patch always-create): -- '{0}'".format(album_title))
 
-    # Find albums created by this app to see if one matches album_title
-    log("create_or_retrieve_album: -- \'{0}\'".format(album_title))
-    albums = getAlbums(session, False)
-    log("got {} albums".format(len(albums)))
-    for a in albums:
-        if 'title' in a and a["title"].lower() == album_title.lower():
-            album_id = a["id"]
-            log("Uploading into EXISTING photo album -- \'{0}\'".format(album_title))
-            return album_id
-
-    # No matches, create new album
-    create_album_body = json.dumps({"album":{"title": album_title}})
+    create_album_body = json.dumps({"album": {"title": album_title}})
     resp = session.post('https://photoslibrary.googleapis.com/v1/albums', create_album_body).json()
     log("Create new album - Server response: {}".format(resp))
 
     if "id" in resp:
-        log("Uploading into NEW photo album -- \'{0}\'".format(album_title))
+        log("Uploading into NEW photo album -- '{0}'".format(album_title))
         return resp['id']
     else:
-        log("Could not find or create photo album '\{0}\'. Server Response: {1}".format(album_title, resp), True)
+        log("Could not create photo album '{0}'. Server Response: {1}".format(album_title, resp), True)
         return None
 
 def upload_photos(session, photo_file_list, album_name):
