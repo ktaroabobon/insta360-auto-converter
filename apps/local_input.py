@@ -3,7 +3,12 @@
 副作用 (SDK 呼び出し / Drive / Photos) はここに置かない。`local_auto_converter.py`
 側のメインループからこのモジュールの関数を呼んで、処理対象の決定とマーカー操作だけ任せる。
 
-ファイル命名規約は Insta360 仕様 (左目: `_00_*.insv` / `_00_*.insp`、右目動画: `_10_*.insv`) を踏襲する。
+ファイル命名規約は Insta360 仕様を踏襲する:
+
+- ONE X (~2018) 動画: `_00_*.insv` (左目) + `_10_*.insv` (右目) のペア
+- X5 (2024-) 動画: `_00_*.insv` 単独 (dual-lens を 1 ファイルに統合、`_10_` 無し)
+- 写真 (両カメラ共通): `_00_*.insp` 単独 (片目のみ)
+
 完了マーカーは `<左目ファイル名>.done` で、同じディレクトリに置く。
 """
 from __future__ import annotations
@@ -93,20 +98,17 @@ def find_pending(album_dir: Path) -> Optional[dict]:
     right_videos = [p for p in direct_files if p.name.endswith(".insv") and "_10_" in p.name]
     left_photos = [p for p in direct_files if p.name.endswith(".insp") and "_00_" in p.name]
 
-    # 動画ペア優先 (best-effort のシャッフルで複数プロセス時の偏りを減らす)
+    # 動画優先 (best-effort のシャッフルで複数プロセス時の偏りを減らす)。
+    # ONE X はペア (`_00_` + `_10_`)、X5 は `_00_` 単独 (`right=None` で返す)。
     random.shuffle(left_videos)
     for lv in left_videos:
-        right_name = pair_right_name(lv.name)
-        if right_name is None:
-            continue
-        right = next((rv for rv in right_videos if rv.name == right_name), None)
-        if right is None:
-            continue
         if _is_done(lv.name):
             continue
+        right_name = pair_right_name(lv.name)
+        right = next((rv for rv in right_videos if rv.name == right_name), None)
         return {
             "left": lv,
-            "right": right,
+            "right": right,  # X5 形式 (ペア無し) は None
             "is_image": False,
             "album_name": album_dir.name,
         }

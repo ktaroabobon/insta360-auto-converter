@@ -44,9 +44,10 @@ def build_command(
         f"{working_folder}/{left_name}",
     ]
     if not is_image:
-        if right_name is None:
-            raise ValueError("video stitch requires right_name")
-        cmd.append(f"{working_folder}/{right_name}")
+        # ONE X (~2018) は左/右目で 2 ファイル、X5 (2024-) は dual-lens を 1 ファイルに統合する。
+        # MediaSDK の `-inputs` は可変長 vector を取るため、ペア有無でそのまま分岐できる。
+        if right_name is not None:
+            cmd.append(f"{working_folder}/{right_name}")
         cmd += ["-output_size", VIDEO_OUTPUT_SIZE, "-bitrate", VIDEO_BITRATE]
     else:
         cmd += ["-output_size", IMAGE_OUTPUT_SIZE]

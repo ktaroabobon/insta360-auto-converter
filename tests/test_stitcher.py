@@ -51,6 +51,55 @@ class TestBuildCommandVideo:
         assert "-enable_flowstate" not in cmd
 
 
+class TestBuildCommandVideoSingleEye:
+    """Insta360 X5 形式: `_00_` 単独動画 (`right_name=None`) を許可する (Issue #9)。
+
+    旧実装は `is_image=False` かつ `right_name=None` で `ValueError` を投げていたため、
+    X5 動画の場合に SDK ランナーまで到達できなかった。MediaSDK example の
+    `VideoStitcher::SetInputPath(input_paths)` は input vector のサイズを問わない
+    (1 でも 2 でも有効) ため、Python 側の guard を外して単一入力動画コマンドを許可する。
+    """
+
+    def test_x5_single_eye_video_uses_left_only_with_video_settings(self):
+        cmd = stitcher.build_command(
+            sdk_path=SDK,
+            working_folder=WORK,
+            left_name="VID_20260506_114009_00_161.insv",
+            right_name=None,
+            convert_name="VID_20260506_114009_00_161_convert.mp4",
+            is_image=False,
+            stabilize=True,
+        )
+        # 左目のみが入力に渡る
+        assert f"{WORK}/VID_20260506_114009_00_161.insv" in cmd
+        # `_10_` 入力は一切登場しない
+        assert not any("_10_" in arg for arg in cmd)
+        # 動画扱い: 5760x2880 + bitrate 200000000 + dynamicstitch
+        assert "5760x2880" in cmd
+        assert "200000000" in cmd
+        assert "dynamicstitch" in cmd
+        # stabilize=True なら flowstate 有効
+        assert "-enable_flowstate" in cmd
+        # 出力先
+        assert f"{WORK}/VID_20260506_114009_00_161_convert.mp4" in cmd
+
+    def test_x5_single_eye_video_does_not_raise(self):
+        """旧実装は `ValueError` を投げていた。新実装は単一入力でも組み立てて返す。"""
+        # 例外が出ないこと自体が回帰検査の主目的
+        cmd = stitcher.build_command(
+            sdk_path=SDK,
+            working_folder=WORK,
+            left_name="VID_x_00.insv",
+            right_name=None,
+            convert_name="VID_x_00_convert.mp4",
+            is_image=False,
+            stabilize=False,
+        )
+        # 帰ってきた cmd が list[str] であること (smoke)
+        assert isinstance(cmd, list)
+        assert all(isinstance(s, str) for s in cmd)
+
+
 class TestBuildCommandImage:
     def test_image_uses_6080x3040_and_no_right_eye(self):
         cmd = stitcher.build_command(
