@@ -17,10 +17,18 @@ INSTA360_DATA_DIR ?= $(CURDIR)/insta360-auto-converter-data
 # (Mac / linux/amd64 emulation) では SDK の dual-lens stitching が動かず出力が
 # dual-fisheye SBS のままになる (Issue #9 動作確認で判明)。
 # 本番想定: Linux + NVIDIA GPU (例: WSL2 + RTX 30/40 系) で `INSTA360_GPU=1` を有効化。
-# Docker Desktop 4.x + WSL2 backend は NVIDIA Container Toolkit を内蔵しているので
-# 追加 install 不要で `--gpus all` が通る。詳細は README の WSL2 セクション参照。
+#
+# capabilities に `video` を含める理由:
+#   `--gpus all` (デフォルト = compute,utility) では `libnvcuvid.so.1` (HEVC NVDEC) が
+#   container に注入されず、SDK 内部の hevc_cuvid 経由 raw decode が失敗 → stitcher が
+#   flow estimator まで到達できず dual-fisheye SBS のまま出力される (PR #12 / WSL2 で確認)。
+#   capabilities に `video` を加えると Docker Desktop の NVIDIA Container Toolkit が
+#   `libnvcuvid` / `libnvidia-encode` を host (`/usr/lib/wsl/lib/`) から container に
+#   投入する。詳細: https://github.com/NVIDIA/nvidia-container-toolkit
+# `,` は make 関数引数の区切り扱いになるため変数経由でリテラルを差し込む
+comma := ,
 INSTA360_GPU ?=
-DOCKER_GPU_FLAGS := $(if $(INSTA360_GPU),--gpus all,)
+DOCKER_GPU_FLAGS := $(if $(INSTA360_GPU),--gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute$(comma)video$(comma)utility,)
 
 # ================================================
 # 初期設定（おそらく、一度しか実行しないもの）

@@ -230,14 +230,16 @@ docker cp insta360-auto-converter:/tmp/check.jpg ./
 
 ## 対応カメラとファイル命名規約
 
-| カメラ | 動画 (`.insv`) | 写真 (`.insp`) |
+| カメラ | 動画 | 写真 |
 |---|---|---|
-| Insta360 ONE X (~2018) | `*_00_*.insv` (左目) + `*_10_*.insv` (右目) のペア | `*_00_*.insp` 単独 |
+| Insta360 ONE X (~2018) | `*_00_*.insv` (左目) + `*_10_*.insv` (右目) のペアを SDK の dual-input に渡す | `*_00_*.insp` 単独 |
 | Insta360 X5 (2024-) | `*_00_*.insv` 単独 (dual-lens を 1 ファイルに統合、`_10_` は出力されない) | `*_00_*.insp` 単独 |
 
 サフィックス `_convert` (`*_convert.mp4` / `*_convert.jpg`) は MediaSDK での stitching 直後の中間ファイル、サフィックス無し (`*.mp4` / `*.jpg`) はメタデータ注入後のアップロード対象 (内部仕様)。
 
 X5 と ONE X は同じディレクトリに混在させても問題ない (左目ファイル名から `_10_` ペアの有無を自動判定し、ペア有なら ONE X、無なら X5 として扱う)。
+
+X5 は SD カード上に同じ録画の低解像度プロキシ `LRV_*_01_*.lrv` も同時生成するが、SDK に `.insv` と一緒に渡すと `couple_media_frame_reader` で frame 不整合になり stitching が走らず dual-fisheye SBS 出力になる。**`.lrv` は SDK には渡さない** (検出対象外。`local-input/<アルバム>/` に `.lrv` ファイルが転がっていても無視されるので、SD カードからまるごとコピーしても問題ない)。
 
 ## マルチプロセス
 

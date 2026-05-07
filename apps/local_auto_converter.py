@@ -162,10 +162,9 @@ def _run_sdk_and_inject_metadata(pending: dict, convert_name: str, output_name: 
     # 動画は閾値超なら分割
     split_videos: list[str] = []
     if not img:
-        # working_folder 内の raw (`*insv` / X5 の `*lrv`) は変換が終わったので削除
-        for pattern in ("*insv", "*lrv"):
-            for filename in glob.glob(str(working_folder / pattern)):
-                silentremove(filename)
+        # working_folder 内の raw (`*insv`) は変換が終わったので削除
+        for filename in glob.glob(str(working_folder / "*insv")):
+            silentremove(filename)
         time.sleep(30)
         vp = VideoProcessor()
         split_videos = vp.split_video(str(working_folder / convert_name))

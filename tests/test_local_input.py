@@ -30,26 +30,6 @@ class TestPairRightName:
         assert li.pair_right_name("IMG_20260101_120000_00_001.insp") is None
 
 
-class TestPairLrvName:
-    """X5 形式: `VID_<ts>_00_<seq>.insv` -> `LRV_<ts>_01_<seq>.lrv` を導出。
-
-    X5 は dual-lens を 1 ファイルに統合した本動画 (`.insv`) と、低解像度プロキシ
-    (`.lrv`) の **ペアで 1 つの動画を構成** する。SDK に両方渡さないと stitch が
-    部分的にしか動かず、出力 mp4 が「歪んだ平面 + 1 秒抜粋」になる (Issue #9 動作確認で発覚)。
-    """
-
-    def test_returns_lrv_companion_for_x5_video(self):
-        assert li.pair_lrv_name("VID_20260506_114009_00_161.insv") == "LRV_20260506_114009_01_161.lrv"
-
-    def test_returns_none_for_image(self):
-        # 写真には .lrv は存在しない
-        assert li.pair_lrv_name("IMG_20260101_120000_00_001.insp") is None
-
-    def test_returns_none_for_lrv_input(self):
-        # `.lrv` を起点にしてもペア導出には使わない (本動画は `.insv` 側のみ)
-        assert li.pair_lrv_name("LRV_20260101_120000_01_001.lrv") is None
-
-
 class TestDeriveOutputNames:
     def test_video(self):
         convert_name, output_name = li.derive_output_names("VID_20260101_120000_00_001.insv")
@@ -122,14 +102,12 @@ class TestFindPending:
         assert result["left"] == left
 
     def test_x5_single_eye_video_is_returned_as_pending(self, tmp_path: Path):
-        """Insta360 X5 形式: `_00_` 単独 (右目 `_10_` も `.lrv` ペアも無し) も動画 pending として返す。
+        """Insta360 X5 形式: `_00_*.insv` 単独を動画 pending として返す (right=None)。
 
         ONE X (~2018) は dual-fisheye で `_00_*.insv` + `_10_*.insv` のペアを吐くが、
         X5 (2024-) は dual-lens を 1 ファイルに統合し `_10_` を出力しない。
         旧実装は `_10_` ペア無しを skip していたため X5 動画が永遠に処理されない問題があり、
         ペア無しでも `right=None` の動画 pending を返すようにする (Issue #9)。
-
-        本テストは `.lrv` も無いケース (ユーザーが proxy を消した等) で fallback として動くこと。
         """
         left = tmp_path / "VID_20260506_114009_00_161.insv"
         left.touch()
@@ -142,12 +120,14 @@ class TestFindPending:
         assert result["is_image"] is False
         assert result["album_name"] == tmp_path.name
 
-    def test_x5_video_with_lrv_companion_returns_lrv_as_right(self, tmp_path: Path):
-        """X5 形式: `_00_*.insv` + `_01_*.lrv` ペアを SDK の dual-input として渡す。
+    def test_x5_lrv_companion_is_ignored_so_insv_alone_goes_to_sdk(self, tmp_path: Path):
+        """X5 形式: 同じ録画の `LRV_*_01_*.lrv` プロキシは検出対象外。
 
-        X5 は `.insv` (本動画) と `.lrv` (low-res proxy) のペアで 1 動画を構成し、
-        両方を SDK に渡さないと stitch が部分的にしか動かず出力 mp4 が
-        「歪んだ平面 + 1 秒抜粋」になる (Issue #9 Docker E2E で発覚)。
+        X5 は dual-lens を `.insv` 1 ファイルに統合する。`LRV_*.lrv` (low-res proxy) は
+        SD カードに同時生成されるが、SDK に `.insv` と一緒に渡すと
+        `couple_media_frame_reader` で frame 不整合となり stitching が走らず
+        dual-fisheye SBS 出力になる (PR #12 WSL2 + RTX 3070 E2E で確認)。
+        したがって `.lrv` がディレクトリにあっても無視し、`.insv` 単独を SDK に渡す。
         """
         left = tmp_path / "VID_20260309_180040_00_039.insv"
         lrv = tmp_path / "LRV_20260309_180040_01_039.lrv"
@@ -158,19 +138,9 @@ class TestFindPending:
 
         assert result is not None
         assert result["left"] == left
-        assert result["right"] == lrv  # ← `.lrv` が SDK の 2 番目の入力になる
+        assert result["right"] is None  # ← .lrv は無視され SDK には渡らない
         assert result["is_image"] is False
         assert result["album_name"] == tmp_path.name
-
-    def test_x5_video_with_lrv_companion_skipped_when_done(self, tmp_path: Path):
-        """X5 ペアでも左目 `.insv` の `.done` マーカーで再処理を抑止する。"""
-        left = tmp_path / "VID_x_00_001.insv"
-        lrv = tmp_path / "LRV_x_01_001.lrv"
-        left.touch()
-        lrv.touch()
-        (tmp_path / "VID_x_00_001.insv.done").touch()
-
-        assert li.find_pending(tmp_path) is None
 
     def test_x5_single_eye_video_with_done_marker_is_skipped(self, tmp_path: Path):
         """X5 単独動画も完了マーカー付きなら skip する (再処理しない)。"""
