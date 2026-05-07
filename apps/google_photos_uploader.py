@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import os.path
 import time
 from logging.handlers import RotatingFileHandler
@@ -13,6 +14,14 @@ from utils import log
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+
+# 永続キャッシュのデフォルトパス。コンテナ運用前提でデータディレクトリ配下に置く。
+# `INSTA360_ALBUM_CACHE_PATH` env で上書き可能 (テスト・運用柔軟性のため)。
+_DEFAULT_ALBUM_CACHE_PATH = os.environ.get(
+    'INSTA360_ALBUM_CACHE_PATH',
+    '/insta360-auto-converter-data/album_cache.json',
+)
 
 
 def parse_args(arg_input=None):
@@ -87,42 +96,64 @@ def save_cred(cred, auth_file):
     with open(auth_file, 'w') as f:
         print(json.dumps(cred_dict), file=f)
 
-# Generator to loop through all albums
+def _load_album_cache(cache_path):
+    """album_cache.json を読み込み {album_name: album_id} の dict を返す。
 
-def getAlbums(session, appCreatedOnly=False):
-    rtn = []
-    params = {
-            'excludeNonAppCreatedData': appCreatedOnly
-    }
-
-    while True:
-        albums = session.get('https://photoslibrary.googleapis.com/v1/albums', params=params).json()
-        if 'albums' in albums:
-            for a in albums["albums"]:
-                rtn.append(a)
-            if 'nextPageToken' in albums:
-                params["pageToken"] = albums["nextPageToken"]
-            else:
-                break
-        if len(albums) == 0:
-            break
-        time.sleep(0.25)
-    return rtn
+    ファイル不在 / JSON パースエラー / dict でない場合はすべて空 dict を返す
+    (best-effort、次回保存時に再生成される)。
+    """
+    if not os.path.exists(cache_path):
+        return {}
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log("album cache at {} could not be read ({}); falling back to empty cache".format(cache_path, e))
+        return {}
+    if not isinstance(data, dict):
+        log("album cache at {} is not a dict ({}); falling back to empty cache".format(cache_path, type(data).__name__))
+        return {}
+    return data
 
 
-def create_or_retrieve_album(session, album_title):
-    # QUICK PATCH (temporary): Photos API の getAlbums が photoslibrary.appendonly
-    # スコープでは PERMISSION_DENIED で落ちるため、毎回新規アルバムを作成する。
-    # 重複アルバムが量産されるので動作確認専用。長期運用には album_id キャッシュ実装が必要。
-    log("create_or_retrieve_album (quick-patch always-create): -- '{0}'".format(album_title))
+def _save_album_cache(cache_path, cache):
+    """album_cache.json を保存する。書き込み失敗は warn ログに留め、例外は伝播させない。"""
+    try:
+        parent = os.path.dirname(cache_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        log("failed to save album cache to {}: {} (continuing without persisting)".format(cache_path, e))
 
+
+def create_or_retrieve_album(session, album_title, cache_path=None):
+    """album_title に対応する album_id を返す。cache hit なら API 呼ばずに即返す。
+
+    cache miss のときは Photos API で新規作成し、`{album_title: album_id}` を
+    cache に追記して保存する。失敗時は None を返し cache を破壊しない。
+    """
+    if cache_path is None:
+        cache_path = _DEFAULT_ALBUM_CACHE_PATH
+
+    cache = _load_album_cache(cache_path)
+    if album_title in cache:
+        cached_id = cache[album_title]
+        log("album cache hit -- '{0}' -> {1}".format(album_title, cached_id))
+        return cached_id
+
+    log("album cache miss -- '{0}', creating new album".format(album_title))
     create_album_body = json.dumps({"album": {"title": album_title}})
     resp = session.post('https://photoslibrary.googleapis.com/v1/albums', create_album_body).json()
     log("Create new album - Server response: {}".format(resp))
 
     if "id" in resp:
+        album_id = resp['id']
+        cache[album_title] = album_id
+        _save_album_cache(cache_path, cache)
         log("Uploading into NEW photo album -- '{0}'".format(album_title))
-        return resp['id']
+        return album_id
     else:
         log("Could not create photo album '{0}'. Server Response: {1}".format(album_title, resp), True)
         return None
