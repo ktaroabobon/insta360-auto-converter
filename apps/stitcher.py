@@ -17,7 +17,17 @@ from typing import Optional
 VIDEO_OUTPUT_SIZE = "5760x2880"
 IMAGE_OUTPUT_SIZE = "6080x3040"
 VIDEO_BITRATE = "200000000"
-STITCH_TYPE = "dynamicstitch"
+
+# stitch_type:
+# - dynamicstitch: 写真 / 動画とも実機 (Mac+Docker emulation) でフレーム描画ができる
+# - aistitch: Insta360 公式は X5 で推奨 (`ai_stitcher_v2.ins` 使用) だが NVIDIA CUDA 必須。
+#   開発環境 (Mac + Docker linux/amd64 emulation) では空 mp4 を吐くため切替を見送り。
+#   本番 Linux + NVIDIA GPU 環境で再評価する余地あり (将来 issue 化検討)。
+VIDEO_STITCH_TYPE = "dynamicstitch"
+IMAGE_STITCH_TYPE = "dynamicstitch"
+
+# AI stitching を選択した場合のモデルファイル root。dynamicstitch でも副作用なく渡せる。
+SDK_MODEL_ROOT_DIR = "/insta360-auto-converter/MediaSDK/models"
 
 # vendored ツールの実行コマンド
 EXIFTOOL_BIN = "./Image-ExifTool-12.10/exiftool"
@@ -49,9 +59,14 @@ def build_command(
         if right_name is not None:
             cmd.append(f"{working_folder}/{right_name}")
         cmd += ["-output_size", VIDEO_OUTPUT_SIZE, "-bitrate", VIDEO_BITRATE]
+        stitch_type = VIDEO_STITCH_TYPE
     else:
         cmd += ["-output_size", IMAGE_OUTPUT_SIZE]
-    cmd += ["-stitch_type", STITCH_TYPE]
+        stitch_type = IMAGE_STITCH_TYPE
+    cmd += ["-stitch_type", stitch_type]
+    # AI stitching は `-model_root_dir` 配下の `ai_stitcher_v2.ins` 等を必要とするため
+    # 常に渡す。dynamicstitch (写真側) も渡しておいて副作用は無い。
+    cmd += ["-model_root_dir", SDK_MODEL_ROOT_DIR]
     if stabilize:
         cmd.append("-enable_flowstate")
     cmd += ["-output", f"{working_folder}/{convert_name}"]

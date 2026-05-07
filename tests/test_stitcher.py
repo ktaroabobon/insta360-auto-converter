@@ -12,6 +12,7 @@ import stitcher
 
 SDK = "/insta360-auto-converter/MediaSDK"
 WORK = "/insta360-auto-converter/apps"
+MODELS = "/insta360-auto-converter/MediaSDK/models"
 
 
 class TestBuildCommandVideo:
@@ -37,6 +38,27 @@ class TestBuildCommandVideo:
         assert f"{WORK}/VID_00_convert.mp4" in cmd
         # SDK バイナリパス
         assert cmd[0] == f"{SDK}/stitcherSDKDemo"
+
+    def test_video_includes_model_root_dir(self):
+        """SDK の AI モデル参照 root を渡しておく (Issue #9 / 将来 aistitch 切替の準備)。
+
+        現状は dynamicstitch を使うため model_root_dir 指定は厳密には不要だが、
+        将来本番 Linux + NVIDIA GPU 環境で aistitch + ai_stitcher_v2.ins (X5 推奨)
+        に切り替える余地を残すため、`-model_root_dir` を常に渡しておく
+        (dynamicstitch 経路では SDK が無視するので副作用なし)。
+        """
+        cmd = stitcher.build_command(
+            sdk_path=SDK,
+            working_folder=WORK,
+            left_name="VID_00.insv",
+            right_name="LRV_01.lrv",
+            convert_name="VID_00_convert.mp4",
+            is_image=False,
+            stabilize=True,
+        )
+        assert "-model_root_dir" in cmd
+        idx = cmd.index("-model_root_dir")
+        assert cmd[idx + 1].endswith("/MediaSDK/models")
 
     def test_video_without_stabilize_omits_flowstate(self):
         cmd = stitcher.build_command(
@@ -131,6 +153,24 @@ class TestBuildCommandImage:
             stabilize=True,
         )
         assert "-bitrate" not in cmd
+
+    def test_image_keeps_dynamicstitch(self):
+        """写真 (`.insp`) は既存 dynamicstitch で正常動作 (PR #10 / PR #12 で実機確認済) のため変更しない。
+
+        動画だけが X5 dual-lens の都合で aistitch を要する。写真の SDK 経路は
+        ImageStitcher で別ロジックなので影響なし。
+        """
+        cmd = stitcher.build_command(
+            sdk_path=SDK,
+            working_folder=WORK,
+            left_name="IMG_00.insp",
+            right_name=None,
+            convert_name="IMG_00_convert.jpg",
+            is_image=True,
+            stabilize=True,
+        )
+        assert "dynamicstitch" in cmd
+        assert "aistitch" not in cmd
 
 
 class TestBuildExifToolCommand:
