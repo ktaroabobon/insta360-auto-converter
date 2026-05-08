@@ -16,7 +16,7 @@ MODELS = "/insta360-auto-converter/MediaSDK/models"
 
 
 class TestBuildCommandVideo:
-    def test_video_pair_includes_both_eyes_and_5760x2880(self):
+    def test_video_pair_includes_both_eyes_and_8k_hevc(self):
         cmd = stitcher.build_command(
             sdk_path=SDK,
             working_folder=WORK,
@@ -29,11 +29,15 @@ class TestBuildCommandVideo:
         # 入力ファイルが両目とも引数として渡る
         assert f"{WORK}/VID_00.insv" in cmd
         assert f"{WORK}/VID_10.insv" in cmd
-        # 動画は 5760x2880, bitrate 200_000_000
-        assert "5760x2880" in cmd
+        # X5 native 8K equirect (7680x3840). 旧設定 5760x2880 は X5 8K dual-fisheye 入力を
+        # 75% にダウンスケールしていたため画質劣化の主因 (PR #12 ユーザーフィードバックで判明)。
+        assert "7680x3840" in cmd
         assert "200000000" in cmd
         # stabilize=True なら -enable_flowstate あり
         assert "-enable_flowstate" in cmd
+        # X5 native は HEVC (H.265). H.264 にトランスコードすると同 bitrate でも画質低下するため、
+        # SDK の HEVC エンコーダを有効化する (`-enable_h265_encoder`)。
+        assert "-enable_h265_encoder" in cmd
         # 出力先
         assert f"{WORK}/VID_00_convert.mp4" in cmd
         # SDK バイナリパス
@@ -118,10 +122,12 @@ class TestBuildCommandVideoSingleEye:
         assert f"{WORK}/VID_20260506_114009_00_161.insv" in cmd
         # `_10_` 入力は一切登場しない
         assert not any("_10_" in arg for arg in cmd)
-        # 動画扱い: 5760x2880 + bitrate 200000000 + dynamicstitch (CUDA 必須、GPU で equirect)
-        assert "5760x2880" in cmd
+        # 動画扱い: 7680x3840 (X5 native 8K) + bitrate 200000000 + dynamicstitch (CUDA 必須、GPU で equirect)
+        # + HEVC エンコーダ (X5 native コーデックに揃え画質劣化を抑える)
+        assert "7680x3840" in cmd
         assert "200000000" in cmd
         assert "dynamicstitch" in cmd
+        assert "-enable_h265_encoder" in cmd
         # stabilize=True なら flowstate 有効
         assert "-enable_flowstate" in cmd
         # 出力先
@@ -223,3 +229,64 @@ class TestBuildSpatialMediaCommand:
         # 入力 -> 出力 の順
         assert cmd[-2] == "VID_00_convert-1.mp4"
         assert cmd[-1] == "VID_00-1.mp4"
+
+
+class TestBuildFaststartRemuxCommand:
+    """spatial-media 注入後の mp4 を ffmpeg で `-c copy -movflags +faststart` で remux する。
+
+    背景 (PR #12 ユーザーフィードバック): PC 版 Google Photos では 360 動画として再生されるが、
+    Android 版では 360 として認識されず平面表示になる。原因の 1 つは moov atom が mdat 後ろに
+    あること (faststart 未適用)。Android Photos はストリーミング再生で moov を先に取る必要があり、
+    後置だとサーバー側の transcode 経路に乗る際に spherical metadata atom が剥がされやすい。
+    `ffmpeg -movflags +faststart` で moov を前置すれば、メタデータ解釈が走りやすくなる。
+
+    `-c copy` のため動画/音声の再エンコードは発生せず画質劣化なし。
+    """
+
+    def test_includes_movflags_faststart_and_stream_copy(self):
+        cmd = stitcher.build_faststart_remux_command(
+            input_path="VID_00.mp4",
+            output_path="VID_00_faststart.mp4",
+        )
+        # ffmpeg を呼ぶ
+        assert cmd[0] == "ffmpeg"
+        # 上書き許可 (-y) があると CI / 再実行で stuck しない
+        assert "-y" in cmd
+        # 入力指定
+        assert "-i" in cmd
+        i_idx = cmd.index("-i")
+        assert cmd[i_idx + 1] == "VID_00.mp4"
+        # ストリームコピー (再エンコ無し)
+        assert "-c" in cmd
+        c_idx = cmd.index("-c")
+        assert cmd[c_idx + 1] == "copy"
+        # faststart
+        assert "-movflags" in cmd
+        m_idx = cmd.index("-movflags")
+        assert cmd[m_idx + 1] == "+faststart"
+        # 出力は最後
+        assert cmd[-1] == "VID_00_faststart.mp4"
+
+
+class TestBuildFfmpegInjectV2SphericalCommand:
+    """sv3d/st3d を mp4 に注入する独自モジュール `spherical_v2` を呼ぶコマンドの組み立て。
+
+    背景: vendored の Google `spatial-media` は v1.0 (uuid+XMP) のみ注入で v2 (sv3d/st3d/proj/equi)
+    atom を入れない。Google RFC では「v1, v2 両方ある場合は v2 が優先」とされ、
+    Android Photos はサーバー transcode 後 v2 atom を読む傾向 (uuid box は剥がされやすい) があるため、
+    v2 注入を必須化する。
+
+    `apps/spherical_v2.py` を実モジュールとして実装し、ここではそれを呼ぶコマンドだけ組み立てる。
+    """
+
+    def test_calls_spherical_v2_module_with_input_and_output(self):
+        cmd = stitcher.build_inject_v2_spherical_command(
+            input_path="VID_00_v1.mp4",
+            output_path="VID_00_v2.mp4",
+        )
+        assert cmd[0] == "python3"
+        # python3 -m spherical_v2 ... の形か、 python3 spherical_v2.py ... の形を許容
+        joined = " ".join(cmd)
+        assert "spherical_v2" in joined
+        assert "VID_00_v1.mp4" in cmd
+        assert "VID_00_v2.mp4" in cmd

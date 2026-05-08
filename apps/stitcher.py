@@ -13,8 +13,13 @@ from __future__ import annotations
 from typing import Optional
 
 
-# 動画 / 写真それぞれの 360 出力解像度。Insta360 MediaSDK の既存運用に合わせている。
-VIDEO_OUTPUT_SIZE = "5760x2880"
+# 動画 / 写真それぞれの 360 出力解像度。
+# 動画は Insta360 X5 native の 8K (7680x3840) equirectangular に揃える。
+# 旧設定 5760x2880 (5.7K) は X5 8K dual-fisheye 入力 (3840x3840 × 2) を 75% にダウンスケール
+# しており、PC 版 Google Photos でも視認可能な画質劣化の主因だった
+# (PR #12 ユーザー実機フィードバックで判明)。X5 5.7K mode でも入力は 2880x2880 × 2 なので
+# 7680x3840 出力にしてもアップスケールにはならず単に bbox が一致するだけで害は無い。
+VIDEO_OUTPUT_SIZE = "7680x3840"
 IMAGE_OUTPUT_SIZE = "6080x3040"
 VIDEO_BITRATE = "200000000"
 
@@ -67,6 +72,10 @@ def build_command(
         if right_name is not None:
             cmd.append(f"{working_folder}/{right_name}")
         cmd += ["-output_size", VIDEO_OUTPUT_SIZE, "-bitrate", VIDEO_BITRATE]
+        # X5 native のコーデックは HEVC (H.265). SDK デフォルトは H.264 で、これだと同 bitrate でも
+        # 8K サイズで圧縮効率が劣り画質劣化が目立つため (PR #12 ユーザー実機フィードバック)、
+        # `-enable_h265_encoder` を付けて native と同じコーデックでエンコードする。
+        cmd.append("-enable_h265_encoder")
         stitch_type = VIDEO_STITCH_TYPE
     else:
         cmd += ["-output_size", IMAGE_OUTPUT_SIZE]
@@ -94,7 +103,13 @@ def build_exiftool_command(convert_name: str) -> list[str]:
 
 
 def build_spatial_media_command(convert_name: str, output_name: str) -> list[str]:
-    """Google `spatial-media` で 360° 動画 atom を MP4 に注入するコマンド列を返す。"""
+    """Google `spatial-media` で 360° 動画 atom を MP4 に注入するコマンド列を返す。
+
+    vendored の `spatial-media` は v1.0 (uuid + XMP `<rdf:SphericalVideo>`) のみ注入する。
+    Android 版 Google Photos でも 360° として再生させるためには、後段で `spherical_v2`
+    を呼んで v2 atom (sv3d/st3d/proj/equi) を追加 + `ffmpeg -movflags +faststart` で moov
+    を前置する必要がある (PR #12 ユーザーフィードバック対応)。
+    """
     return [
         "python3",
         SPATIAL_MEDIA_BIN,
@@ -102,4 +117,41 @@ def build_spatial_media_command(convert_name: str, output_name: str) -> list[str
         "--stereo=none",
         convert_name,
         output_name,
+    ]
+
+
+def build_inject_v2_spherical_command(input_path: str, output_path: str) -> list[str]:
+    """`apps/spherical_v2.py` を呼んで v2 sv3d/st3d/proj/equi atom を MP4 に注入するコマンド列。
+
+    vendored `spatial-media` の v1.0 注入後に呼ぶ。v1 (uuid+XMP) と v2 (sv3d/st3d) は共存可能で、
+    Google RFC では「両方ある場合は v2 が優先」と定められている。Android Google Photos は
+    サーバー transcode 後に v2 atom を読む傾向があるため、v2 を必ず注入する。
+
+    `spherical_v2` モジュールは `apps/` 配下に配置 (WORKDIR=/insta360-auto-converter/apps)。
+    """
+    return [
+        "python3",
+        "spherical_v2.py",
+        input_path,
+        output_path,
+    ]
+
+
+def build_faststart_remux_command(input_path: str, output_path: str) -> list[str]:
+    """`ffmpeg -c copy -movflags +faststart` で moov atom を前置する remux コマンド列を返す。
+
+    動画パイプの最後に呼び、Android Photos のストリーミング 360° 解釈を確実にする。
+    `-c copy` のため再エンコードは発生せず画質劣化なし (PR #12 ユーザー fb 対応)。
+    `-y` で出力ファイル上書きを許可 (再実行を妨げない)。
+    """
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        input_path,
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        output_path,
     ]
