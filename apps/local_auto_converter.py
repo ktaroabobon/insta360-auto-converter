@@ -40,6 +40,8 @@ from local_input import (  # noqa: E402
 from stitcher import (  # noqa: E402
     build_command,
     build_exiftool_command,
+    build_faststart_remux_command,
+    build_inject_v2_spherical_command,
     build_spatial_media_command,
 )
 from utils import log, silentremove  # noqa: E402
@@ -162,7 +164,7 @@ def _run_sdk_and_inject_metadata(pending: dict, convert_name: str, output_name: 
     # 動画は閾値超なら分割
     split_videos: list[str] = []
     if not img:
-        # working_folder 内の `*insv` (raw) は変換が終わったので削除
+        # working_folder 内の raw (`*insv`) は変換が終わったので削除
         for filename in glob.glob(str(working_folder / "*insv")):
             silentremove(filename)
         time.sleep(30)
@@ -178,15 +180,57 @@ def _run_sdk_and_inject_metadata(pending: dict, convert_name: str, output_name: 
         return [output_name]
 
     # 動画: split_video の戻り値はファイル名のみ (cwd 依存)。working_folder 直下に居る前提。
+    # メタデータ注入 + faststart は **以下の順序** で 3 ステップ:
+    #
+    #   <conv>_convert.mp4
+    #     ─① ffmpeg -c copy -movflags +faststart (moov 前置)──>  <conv>_fs.mp4
+    #     ─② spatial-media (v1.0 uuid + XMP 注入)──>  <conv>_v1.mp4
+    #     ─③ spherical_v2 (v2 sv3d/st3d/proj/equi atom 追加注入)──>  <conv>.mp4 (= final)
+    #
+    # **順序が重要**: 最後を ffmpeg にすると `-c copy` 経路が unknown box (uuid/sv3d/st3d 等)
+    # を mp4 muxer 出力で drop してしまい (PR #12 1 周目の E2E で実機確認)、せっかくの v1/v2
+    # メタデータが消えて Photos が 360° 認識できなくなる。
+    # 一方 vendored の `Mpeg4Container.save()` は元 box 構造をそのまま書き戻し、faststart で
+    # 前置済みの moov 順序も保持するため、faststart を先に行えば atom が最後まで残る。
+    #
+    # ② v1 が必要な理由: PC 版 Google Photos / 旧 Insta360 動画クライアントが見る XMP メタ。
+    # ③ v2 が必要な理由: Android 版 Google Photos など最新ビューアは v2 (sv3d/st3d) を優先する
+    # (Google RFC で「両方ある場合は v2 が優先」と明記)。Photos のサーバー transcode 経路でも
+    # v2 atom は uuid より保持されやすい。
     outputs: list[str] = []
     for tmp_video in split_videos:
+        fs_name = tmp_video.replace("_convert", "_fs")
+        v1_name = tmp_video.replace("_convert", "_v1")
         out_name = tmp_video.replace("_convert", "")
-        cmd = build_spatial_media_command(
-            convert_name=tmp_video,
-            output_name=out_name,
+
+        # ① ffmpeg で moov を前置 (faststart)。`-c copy` のため再エンコ無し = 画質劣化なし。
+        cmd_fs = build_faststart_remux_command(
+            input_path=tmp_video,
+            output_path=fs_name,
         )
-        subprocess.call(" ".join(cmd), shell=True)
+        log("ffmpeg faststart remux (local mode): {}".format(cmd_fs))
+        subprocess.call(" ".join(cmd_fs), shell=True)
+
+        # ② v1.0 uuid + XMP 注入
+        cmd_v1 = build_spatial_media_command(
+            convert_name=fs_name,
+            output_name=v1_name,
+        )
+        log("inject v1 spherical metadata (local mode): {}".format(cmd_v1))
+        subprocess.call(" ".join(cmd_v1), shell=True)
+
+        # ③ v2.0 sv3d/st3d/proj/equi atom 追加注入 (最終出力)
+        cmd_v2 = build_inject_v2_spherical_command(
+            input_path=v1_name,
+            output_path=out_name,
+        )
+        log("inject v2 spherical metadata (local mode): {}".format(cmd_v2))
+        subprocess.call(" ".join(cmd_v2), shell=True)
+
+        # 中間ファイルを片付ける (失敗時は次の周回で再試行可能、`.done` も付かない)
         silentremove(tmp_video)
+        silentremove(fs_name)
+        silentremove(v1_name)
         outputs.append(out_name)
     return outputs
 

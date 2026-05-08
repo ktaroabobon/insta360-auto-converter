@@ -21,7 +21,11 @@ class VideoProcessor:
             file_size = os.path.getsize(video)
             log('{} file_size: {}'.format(video, file_size))
             if file_size < self.SIZE_LIMIT:
-                rtn.append(video)
+                # 分割不要時も basename を返して、分割パス (clip_name = basename) と
+                # 戻り値形式を揃える。呼び出し側 (`_run_sdk_and_inject_metadata`) が
+                # `working_folder/{out_name}` で path 結合するため、full path のまま
+                # 返すと二重結合で `[Errno 2] No such file` になる (Issue #9 Docker E2E で発覚)。
+                rtn.append(os.path.basename(video))
                 log('{} clip file size lower than the limit, no need to split'.format(video))
                 return rtn
 

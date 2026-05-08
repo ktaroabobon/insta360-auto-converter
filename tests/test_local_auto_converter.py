@@ -52,6 +52,18 @@ def _stub_pending_video(album_dir: Path) -> dict:
     }
 
 
+def _stub_pending_video_x5(album_dir: Path) -> dict:
+    """Insta360 X5 形式: `_00_` 単独動画 (右目 `_10_` 無し、Issue #9)。"""
+    left = album_dir / "VID_20260506_114009_00_161.insv"
+    left.touch()
+    return {
+        "left": left,
+        "right": None,
+        "is_image": False,
+        "album_name": album_dir.name,
+    }
+
+
 def _stub_pending_photo(album_dir: Path) -> dict:
     left = album_dir / "IMG_a_00_001.insp"
     left.touch()
@@ -150,6 +162,50 @@ class TestProcessPendingVideo:
             assert call.args[1] == "trip-2026-04"
         # done マーカーは左目に対して 1 つだけ
         assert (album_dir / "VID_a_00_001.insv.done").exists()
+
+
+class TestProcessPendingVideoX5:
+    """Insta360 X5 単独動画 (`right=None`) でも orchestrator が完走すること (Issue #9)。
+
+    `process_pending` 自体は `pending["right"]` を直接参照しない (右目は SDK runner 内部でのみ使う)
+    が、X5 ケースが来たときの不変条件を回帰検査として明示する:
+      - SDK runner は 1 回呼ばれる
+      - 出力は Drive / Photos 両方に上がる (split 後の 1 本)
+      - `.done` マーカーが左目に対して付く
+    """
+
+    def test_x5_single_eye_video_uploads_and_marks_done(self, album_dir, working_folder):
+        pending = _stub_pending_video_x5(album_dir)
+
+        # SDK runner は分割後 1 本の動画ファイルを作る (X5 短尺想定)
+        def fake_sdk_runner(pending_arg, convert_name, output_name, working):
+            (working / "VID_20260506_114009_00_161-1.mp4").write_bytes(b"part1")
+        sdk_runner = MagicMock(side_effect=fake_sdk_runner)
+
+        gs = MagicMock(name="GDriveService")
+        gs.get_or_create_subfolder.return_value = _make_drive_subfolder()
+        photos_uploader = MagicMock()
+
+        lac.process_pending(
+            pending=pending,
+            working_folder=str(working_folder),
+            drive_parent_id="working-folder-id",
+            gs=gs,
+            sdk_runner=sdk_runner,
+            upload_targets=UploadTargets(drive=True, photos=True),
+            photos_uploader=photos_uploader,
+            split_outputs=["VID_20260506_114009_00_161-1.mp4"],
+        )
+
+        # SDK runner は 1 回呼ばれた
+        sdk_runner.assert_called_once()
+        # 動画なので mimetype は video/mp4
+        gs.upload_file_to_folder.assert_called_once()
+        assert gs.upload_file_to_folder.call_args.args[2] == "video/mp4"
+        # Photos も 1 回
+        photos_uploader.assert_called_once()
+        # 左目に対して .done マーカー
+        assert (album_dir / "VID_20260506_114009_00_161.insv.done").exists()
 
 
 class TestProcessPendingFailure:

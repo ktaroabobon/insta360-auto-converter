@@ -139,6 +139,93 @@ make docker/rebuild/d
 
 `make help` で全ターゲットの一覧を確認できる。
 
+## NVIDIA GPU で動かす (WSL2 / Linux)
+
+Insta360 MediaSDK は **NVIDIA CUDA 11.7 + libnvcuvid** を要求する。GPU 非搭載環境 (Mac / linux/amd64 emulation) では SDK の dual-lens stitching が動かず、出力が dual-fisheye SBS のままになる。**動画パイプライン全体を正しく動かすには NVIDIA GPU 環境が必須**。本セクションは Windows 11 + WSL2 + RTX 系 GPU を想定したセットアップ手順。
+
+### stitch_type について (`apps/stitcher.py`)
+
+動画 / 写真とも `dynamicstitch` (`STITCH_TYPE::DYNAMICSTITCH`) を使う。GPU 上では `arvrender::DynamicStitcher` が CUDA で動き equirectangular を生成する。GPU 不在環境では `flow estimator failed` で落ちて出力が dual-fisheye SBS のままになるため `INSTA360_GPU=1` 起動が事実上必須。
+
+aistitch (Insta360 公式は X5 で推奨) は MediaSDK 3.1.1 同梱の `example/main.cc` + `libMediaSDK.so` に `SetAiStitchModelFile` 系のシンボルが無く、`-stitch_type aistitch` だけでは model 適用が走らず出力 mp4 が「全フレーム真っ黒」になる (PR #12 / WSL2 + RTX 3070 で実機確認)。aistitch を有効化するには SDK example をカスタムビルドして `SetAiStitchModelFile("ai_stitcher_v2.ins")` を呼び出す追加実装が必要 (今後の課題)。
+
+### 出力動画の解像度・コーデック・360° メタデータ
+
+Insta360 X5 が記録する動画は dual-fisheye `.insv` 1 ファイル (各レンズ 3840x3840、HEVC、~144Mbps、計 8K equirect 相当)。これを最大限活かすため、SDK 出力は **7680x3840 (8K) + HEVC + 200Mbps** に設定 (`apps/stitcher.py`)。旧設定 5760x2880 + H.264 は X5 8K 入力を 75% にダウンスケール + コーデック効率低下で画質劣化していた (PR #12 ユーザーフィードバックで判明)。
+
+SDK 出力後、ローカル入力モードでは `apps/local_auto_converter._run_sdk_and_inject_metadata` 内で **以下の順序** で 360° メタデータと faststart を入れて Photos / Drive にアップロードする:
+
+1. **`ffmpeg -c copy -movflags +faststart`** で moov atom をファイル先頭に移動 (Android Google Photos のストリーミング 360° 解釈に必要)
+2. **`spatial-media`** (vendored) で **v1.0 uuid + XMP (`<rdf:SphericalVideo>`)** 注入
+3. **`apps/spherical_v2.py`** で **v2.0 sv3d / st3d / proj / equi atom** を `stsd/<sample>` 配下に注入
+
+順序が重要: `ffmpeg -c copy` は ISO BMFF muxer が認識しない box (uuid / sv3d / st3d) を出力で drop するため、faststart を先に行い、その後 vendored の `Mpeg4Container.save()` 経由で v1 / v2 atom を追加する (vendored の save は元 box 構造を保持し、moov 前置の順序も維持する)。
+
+v1 と v2 を両方注入する理由は Google RFC `spherical-video-v2-rfc.md` の通り: v1 は旧クライアント (PC 版 Photos / 旧 Insta360 アプリ等) 向け、v2 は新クライアント (Android 版 Photos など) 向け、両方ある場合は v2 が優先される。Google Photos Android はサーバー transcode 経路で uuid box が剥がれることがあり、v2 atom の方が保持されやすい。
+
+検証は `docker exec insta360-auto-converter` で出力 mp4 を Python の `apps/spatial-media/spatialmedia/mpeg/mpeg4_container.py:load` に通し、`hvc1` 配下に `sv3d` `st3d`、`trak` 配下に `uuid` が居ることと top-level の `moov` が `mdat` より前に居ることを確認できる (PR #12 E2E スクリプト参照)。
+
+### 前提
+
+- Windows 11 + WSL2 (Ubuntu 22.04 / 24.04 推奨)
+- NVIDIA GPU (RTX 30/40 系など、CUDA Compute Capability 8.x 以上)
+- NVIDIA Windows ドライバ (Game Ready / Studio どちらでも、ver 470+)
+- Docker Desktop for Windows (4.x 以降、WSL2 backend integration ON)
+
+### セットアップ確認
+
+WSL2 ターミナルで以下が成功すれば下準備 OK:
+
+```bash
+# 1. ホストで GPU 認識
+nvidia-smi
+
+# 2. Docker → コンテナ → GPU パススルーが通る
+docker run --rm --gpus all nvidia/cuda:11.7.0-base-ubuntu22.04 nvidia-smi
+```
+
+Docker Desktop 4.x は **NVIDIA Container Toolkit を内蔵** しているので、追加 install 不要で `--gpus all` が即使える。手動で `nvidia-container-toolkit` を入れる必要はない (詳細: [NVIDIA CUDA on WSL User Guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html))。
+
+### 起動
+
+`INSTA360_GPU=1` を付けるだけ:
+
+```bash
+# ローカル入力モードを GPU 有効で起動
+INSTA360_GPU=1 make docker/run/local
+
+# Drive モードも同様
+INSTA360_GPU=1 make docker/run
+```
+
+未指定 (Mac / GPU 無し環境) では `--gpus all` は付かないので副作用なし。
+
+### 動作確認
+
+GPU が正しく通っているか確認:
+
+```bash
+make docker/exec
+# コンテナ内で
+nvidia-smi      # ホスト GPU が見えれば OK
+ls /usr/lib/x86_64-linux-gnu/libnvcuvid.so.1   # NVIDIA Container Toolkit が host から注入する
+```
+
+X5 動画を `local-input/<アルバム名>/` に置いてしばらく待ったあと、`docker exec insta360-auto-converter ls /insta360-auto-converter/apps/*.mp4` で出力 mp4 が生成されているか確認。フレームを取り出して目視:
+
+```bash
+docker exec insta360-auto-converter python3 -c "from moviepy.editor import VideoFileClip; c=VideoFileClip('/insta360-auto-converter/apps/VID_xxx.mp4'); c.save_frame('/tmp/check.jpg', t=2.0)"
+docker cp insta360-auto-converter:/tmp/check.jpg ./
+```
+
+正しく動いていれば `check.jpg` は **equirectangular** (横長 2:1、被写体が中央付近にも分布) になっているはず。**dual-fisheye が左右に並んだまま** だと SDK の stitching が走っていない (= GPU が通っていない or libnvcuvid が見えていない)。
+
+### トラブルシュート
+
+- **`nvidia-smi` が WSL2 で見えない** → Windows 側のドライバが古い、または WSL カーネルが古い (`wsl --update`)
+- **`docker run --gpus all` で `unknown flag` エラー** → Docker Desktop が古い、または WSL2 backend integration が OFF
+- **コンテナで `libnvcuvid.so.1: cannot open shared object`** → Docker Desktop の GPU 機能が無効。Settings > General > "Use the WSL 2 based engine" を確認
+
 ## ファイル配置のしかた
 
 ### Drive モード (Google Drive 側)
@@ -156,6 +243,19 @@ make docker/rebuild/d
 3. 完了したファイルには `<元ファイル名>.done` マーカーが置かれ、次回以降スキップされる (再処理したい場合はマーカーを削除)。
 
 `INSTA360_LOCAL_INPUT_ROOT` 環境変数で監視ディレクトリを上書き可能 (デフォルト: `/insta360-auto-converter-data/local-input`)。
+
+## 対応カメラとファイル命名規約
+
+| カメラ | 動画 | 写真 |
+|---|---|---|
+| Insta360 ONE X (~2018) | `*_00_*.insv` (左目) + `*_10_*.insv` (右目) のペアを SDK の dual-input に渡す | `*_00_*.insp` 単独 |
+| Insta360 X5 (2024-) | `*_00_*.insv` 単独 (dual-lens を 1 ファイルに統合、`_10_` は出力されない) | `*_00_*.insp` 単独 |
+
+サフィックス `_convert` (`*_convert.mp4` / `*_convert.jpg`) は MediaSDK での stitching 直後の中間ファイル、サフィックス無し (`*.mp4` / `*.jpg`) はメタデータ注入後のアップロード対象 (内部仕様)。
+
+X5 と ONE X は同じディレクトリに混在させても問題ない (左目ファイル名から `_10_` ペアの有無を自動判定し、ペア有なら ONE X、無なら X5 として扱う)。
+
+X5 は SD カード上に同じ録画の低解像度プロキシ `LRV_*_01_*.lrv` も同時生成するが、SDK に `.insv` と一緒に渡すと `couple_media_frame_reader` で frame 不整合になり stitching が走らず dual-fisheye SBS 出力になる。**`.lrv` は SDK には渡さない** (検出対象外。`local-input/<アルバム>/` に `.lrv` ファイルが転がっていても無視されるので、SD カードからまるごとコピーしても問題ない)。
 
 ## マルチプロセス
 

@@ -3,7 +3,18 @@
 副作用 (SDK 呼び出し / Drive / Photos) はここに置かない。`local_auto_converter.py`
 側のメインループからこのモジュールの関数を呼んで、処理対象の決定とマーカー操作だけ任せる。
 
-ファイル命名規約は Insta360 仕様 (左目: `_00_*.insv` / `_00_*.insp`、右目動画: `_10_*.insv`) を踏襲する。
+ファイル命名規約は Insta360 仕様を踏襲する:
+
+- ONE X (~2018) 動画: `_00_*.insv` (左目) + `_10_*.insv` (右目) のペアを SDK の dual-input に渡す
+- X5 (2024-) 動画: `VID_<ts>_00_<seq>.insv` 単独 (dual-lens を 1 ファイルに統合)。
+  同じ録画には低解像度プロキシ `LRV_<ts>_01_<seq>.lrv` も生成されるが、
+  **SDK には渡さない** (PR #12 の WSL2 + GPU 実機検証で確認: `.lrv` を一緒に渡すと
+  SDK が `couple_media_frame_reader` で frame 不整合となり stitching が走らず
+  dual-fisheye SBS 出力になる。`.insv` 単独で SDK は正しい equirect 17.88s を出す)
+- 写真 (両カメラ共通): `_00_*.insp` 単独 (片目のみ)
+
+入力ディレクトリに `.lrv` ファイルが転がっていても無視する (検出対象外、エラーにもしない)。
+
 完了マーカーは `<左目ファイル名>.done` で、同じディレクトリに置く。
 """
 from __future__ import annotations
@@ -23,7 +34,7 @@ def is_image(name: str) -> bool:
 
 
 def pair_right_name(left_name: str) -> Optional[str]:
-    """左目ファイル名から、ペアになる右目動画ファイル名を返す。
+    """左目ファイル名から、ペアになる右目動画ファイル名を返す (ONE X 形式)。
 
     写真 (`.insp`) は片目のみ存在するため None を返す。
     動画は `_00_` を `_10_` に置換した名前。
@@ -93,20 +104,22 @@ def find_pending(album_dir: Path) -> Optional[dict]:
     right_videos = [p for p in direct_files if p.name.endswith(".insv") and "_10_" in p.name]
     left_photos = [p for p in direct_files if p.name.endswith(".insp") and "_00_" in p.name]
 
-    # 動画ペア優先 (best-effort のシャッフルで複数プロセス時の偏りを減らす)
+    # 動画優先 (best-effort のシャッフルで複数プロセス時の偏りを減らす)。
+    # ペア解決:
+    #   - ONE X: `_00_*.insv` + `_10_*.insv` の両方が揃ったら dual-input として渡す
+    #   - X5:    `_10_*.insv` ペアが無いので `right=None` で SDK には `.insv` 単独で渡す
+    #            (同じ録画の `LRV_*_01_*.lrv` は SDK には**渡さない**。詳細は本ファイル冒頭の docstring)
     random.shuffle(left_videos)
     for lv in left_videos:
-        right_name = pair_right_name(lv.name)
-        if right_name is None:
-            continue
-        right = next((rv for rv in right_videos if rv.name == right_name), None)
-        if right is None:
-            continue
         if _is_done(lv.name):
             continue
+        right: Optional[Path] = None
+        right_name = pair_right_name(lv.name)
+        if right_name is not None:
+            right = next((rv for rv in right_videos if rv.name == right_name), None)
         return {
             "left": lv,
-            "right": right,
+            "right": right,  # ONE X はペアの `.insv` Path、X5 は None
             "is_image": False,
             "album_name": album_dir.name,
         }

@@ -101,10 +101,75 @@ class TestFindPending:
         assert result["is_image"] is False
         assert result["left"] == left
 
-    def test_video_without_right_eye_is_skipped(self, tmp_path: Path):
-        # 右目欠損の動画は処理対象外 (壊れた状態)
-        (tmp_path / "VID_x_00_001.insv").touch()
-        # 右目なし、写真もなし → なにも返らない
+    def test_x5_single_eye_video_is_returned_as_pending(self, tmp_path: Path):
+        """Insta360 X5 形式: `_00_*.insv` 単独を動画 pending として返す (right=None)。
+
+        ONE X (~2018) は dual-fisheye で `_00_*.insv` + `_10_*.insv` のペアを吐くが、
+        X5 (2024-) は dual-lens を 1 ファイルに統合し `_10_` を出力しない。
+        旧実装は `_10_` ペア無しを skip していたため X5 動画が永遠に処理されない問題があり、
+        ペア無しでも `right=None` の動画 pending を返すようにする (Issue #9)。
+        """
+        left = tmp_path / "VID_20260506_114009_00_161.insv"
+        left.touch()
+
+        result = li.find_pending(tmp_path)
+
+        assert result is not None
+        assert result["left"] == left
+        assert result["right"] is None
+        assert result["is_image"] is False
+        assert result["album_name"] == tmp_path.name
+
+    def test_x5_lrv_companion_is_ignored_so_insv_alone_goes_to_sdk(self, tmp_path: Path):
+        """X5 形式: 同じ録画の `LRV_*_01_*.lrv` プロキシは検出対象外。
+
+        X5 は dual-lens を `.insv` 1 ファイルに統合する。`LRV_*.lrv` (low-res proxy) は
+        SD カードに同時生成されるが、SDK に `.insv` と一緒に渡すと
+        `couple_media_frame_reader` で frame 不整合となり stitching が走らず
+        dual-fisheye SBS 出力になる (PR #12 WSL2 + RTX 3070 E2E で確認)。
+        したがって `.lrv` がディレクトリにあっても無視し、`.insv` 単独を SDK に渡す。
+        """
+        left = tmp_path / "VID_20260309_180040_00_039.insv"
+        lrv = tmp_path / "LRV_20260309_180040_01_039.lrv"
+        left.touch()
+        lrv.touch()
+
+        result = li.find_pending(tmp_path)
+
+        assert result is not None
+        assert result["left"] == left
+        assert result["right"] is None  # ← .lrv は無視され SDK には渡らない
+        assert result["is_image"] is False
+        assert result["album_name"] == tmp_path.name
+
+    def test_x5_single_eye_video_with_done_marker_is_skipped(self, tmp_path: Path):
+        """X5 単独動画も完了マーカー付きなら skip する (再処理しない)。"""
+        left = tmp_path / "VID_x_00_001.insv"
+        left.touch()
+        (tmp_path / "VID_x_00_001.insv.done").touch()
+
+        assert li.find_pending(tmp_path) is None
+
+    def test_one_x_paired_video_still_returns_with_right(self, tmp_path: Path):
+        """既存 ONE X 形式の `_00_` + `_10_` ペアが回帰なく従来どおり動くこと。"""
+        left = tmp_path / "VID_a_00_001.insv"
+        right = tmp_path / "VID_a_10_001.insv"
+        left.touch()
+        right.touch()
+
+        result = li.find_pending(tmp_path)
+
+        assert result["left"] == left
+        assert result["right"] == right  # X5 と違いペアが解決される
+        assert result["is_image"] is False
+
+    def test_orphan_right_eye_video_is_ignored(self, tmp_path: Path):
+        """`_10_` 単独 (左目無しで右目だけ) は処理対象にしない。
+
+        `_10_` は ONE X 系の右目で、対応する `_00_` 無しに置かれることは仕様上想定外。
+        万一あっても無視 (X5 単独サポートが `_10_` 単独ファイルにまで広がらないことを保証)。
+        """
+        (tmp_path / "VID_x_10_001.insv").touch()
         assert li.find_pending(tmp_path) is None
 
     def test_ignores_macos_metadata_files(self, tmp_path: Path):

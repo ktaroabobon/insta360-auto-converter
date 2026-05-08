@@ -13,11 +13,34 @@ from __future__ import annotations
 from typing import Optional
 
 
-# 動画 / 写真それぞれの 360 出力解像度。Insta360 MediaSDK の既存運用に合わせている。
-VIDEO_OUTPUT_SIZE = "5760x2880"
+# 動画 / 写真それぞれの 360 出力解像度。
+# 動画は Insta360 X5 native の 8K (7680x3840) equirectangular に揃える。
+# 旧設定 5760x2880 (5.7K) は X5 8K dual-fisheye 入力 (3840x3840 × 2) を 75% にダウンスケール
+# しており、PC 版 Google Photos でも視認可能な画質劣化の主因だった
+# (PR #12 ユーザー実機フィードバックで判明)。X5 5.7K mode でも入力は 2880x2880 × 2 なので
+# 7680x3840 出力にしてもアップスケールにはならず単に bbox が一致するだけで害は無い。
+VIDEO_OUTPUT_SIZE = "7680x3840"
 IMAGE_OUTPUT_SIZE = "6080x3040"
 VIDEO_BITRATE = "200000000"
-STITCH_TYPE = "dynamicstitch"
+
+# stitch_type:
+# - 動画 / 写真とも `dynamicstitch`。
+#   - aistitch は Insta360 公式 X5 推奨だが MediaSDK 3.1.1 (本リポジトリ同梱) の
+#     example/main.cc + libMediaSDK.so のシンボルセットには `SetAiStitchModelFile`
+#     が無く、`SetStitchType(AIFLOW)` + `SetModelFileRootDir(...)` だけでは
+#     model 適用が走らず WSL2 + RTX 3070 環境で出力 mp4 が equirectangular 形状の
+#     「全フレーム真っ黒」になることを実機検証で確認 (#9 / PR #12 E2E)。
+#     aistitch を使うには SDK example の main.cc にカスタム glue を追加してビルドする
+#     必要があり、本 PR スコープ外 (将来 issue 化)。
+#   - dynamicstitch は CUDA 上で DynamicStitcher が動き equirectangular を生成する。
+#     Mac / 非 GPU 環境では `flow estimator failed` で dual-fisheye SBS のまま落ちるが、
+#     `INSTA360_GPU=1` で GPU 通せば正常動作する想定 (本 PR で検証)。
+VIDEO_STITCH_TYPE = "dynamicstitch"
+IMAGE_STITCH_TYPE = "dynamicstitch"
+
+# `-model_root_dir` は dynamicstitch では SDK 側で無視されるが、将来 aistitch に切り替えた際に
+# `ai_stitcher_v2.ins` 等を参照する root として常時渡しておく (副作用なし)。
+SDK_MODEL_ROOT_DIR = "/insta360-auto-converter/MediaSDK/models"
 
 # vendored ツールの実行コマンド
 EXIFTOOL_BIN = "./Image-ExifTool-12.10/exiftool"
@@ -44,13 +67,23 @@ def build_command(
         f"{working_folder}/{left_name}",
     ]
     if not is_image:
-        if right_name is None:
-            raise ValueError("video stitch requires right_name")
-        cmd.append(f"{working_folder}/{right_name}")
+        # ONE X (~2018) は左/右目で 2 ファイル、X5 (2024-) は dual-lens を 1 ファイルに統合する。
+        # MediaSDK の `-inputs` は可変長 vector を取るため、ペア有無でそのまま分岐できる。
+        if right_name is not None:
+            cmd.append(f"{working_folder}/{right_name}")
         cmd += ["-output_size", VIDEO_OUTPUT_SIZE, "-bitrate", VIDEO_BITRATE]
+        # X5 native のコーデックは HEVC (H.265). SDK デフォルトは H.264 で、これだと同 bitrate でも
+        # 8K サイズで圧縮効率が劣り画質劣化が目立つため (PR #12 ユーザー実機フィードバック)、
+        # `-enable_h265_encoder` を付けて native と同じコーデックでエンコードする。
+        cmd.append("-enable_h265_encoder")
+        stitch_type = VIDEO_STITCH_TYPE
     else:
         cmd += ["-output_size", IMAGE_OUTPUT_SIZE]
-    cmd += ["-stitch_type", STITCH_TYPE]
+        stitch_type = IMAGE_STITCH_TYPE
+    cmd += ["-stitch_type", stitch_type]
+    # AI stitching は `-model_root_dir` 配下の `ai_stitcher_v2.ins` 等を必要とするため
+    # 常に渡す。dynamicstitch (写真側) も渡しておいて副作用は無い。
+    cmd += ["-model_root_dir", SDK_MODEL_ROOT_DIR]
     if stabilize:
         cmd.append("-enable_flowstate")
     cmd += ["-output", f"{working_folder}/{convert_name}"]
@@ -70,7 +103,13 @@ def build_exiftool_command(convert_name: str) -> list[str]:
 
 
 def build_spatial_media_command(convert_name: str, output_name: str) -> list[str]:
-    """Google `spatial-media` で 360° 動画 atom を MP4 に注入するコマンド列を返す。"""
+    """Google `spatial-media` で 360° 動画 atom を MP4 に注入するコマンド列を返す。
+
+    vendored の `spatial-media` は v1.0 (uuid + XMP `<rdf:SphericalVideo>`) のみ注入する。
+    Android 版 Google Photos でも 360° として再生させるためには、後段で `spherical_v2`
+    を呼んで v2 atom (sv3d/st3d/proj/equi) を追加 + `ffmpeg -movflags +faststart` で moov
+    を前置する必要がある (PR #12 ユーザーフィードバック対応)。
+    """
     return [
         "python3",
         SPATIAL_MEDIA_BIN,
@@ -78,4 +117,41 @@ def build_spatial_media_command(convert_name: str, output_name: str) -> list[str
         "--stereo=none",
         convert_name,
         output_name,
+    ]
+
+
+def build_inject_v2_spherical_command(input_path: str, output_path: str) -> list[str]:
+    """`apps/spherical_v2.py` を呼んで v2 sv3d/st3d/proj/equi atom を MP4 に注入するコマンド列。
+
+    vendored `spatial-media` の v1.0 注入後に呼ぶ。v1 (uuid+XMP) と v2 (sv3d/st3d) は共存可能で、
+    Google RFC では「両方ある場合は v2 が優先」と定められている。Android Google Photos は
+    サーバー transcode 後に v2 atom を読む傾向があるため、v2 を必ず注入する。
+
+    `spherical_v2` モジュールは `apps/` 配下に配置 (WORKDIR=/insta360-auto-converter/apps)。
+    """
+    return [
+        "python3",
+        "spherical_v2.py",
+        input_path,
+        output_path,
+    ]
+
+
+def build_faststart_remux_command(input_path: str, output_path: str) -> list[str]:
+    """`ffmpeg -c copy -movflags +faststart` で moov atom を前置する remux コマンド列を返す。
+
+    動画パイプの最後に呼び、Android Photos のストリーミング 360° 解釈を確実にする。
+    `-c copy` のため再エンコードは発生せず画質劣化なし (PR #12 ユーザー fb 対応)。
+    `-y` で出力ファイル上書きを許可 (再実行を妨げない)。
+    """
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        input_path,
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        output_path,
     ]

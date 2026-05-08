@@ -279,7 +279,9 @@ def parse_spherical_xml(contents, console):
             return
 
     sphericalDictionary = dict()
-    for child in parsed_xml.getchildren():
+    # Python 3.9 で Element.getchildren() が削除されたため list() に置換 (Issue #9)。
+    # vendored ツール (Google spatial-media, 2018-) の Python 3 互換パッチ。
+    for child in list(parsed_xml):
         if child.tag in SPHERICAL_TAGS.keys():
             console("\t\t" + SPHERICAL_TAGS[child.tag]
                     + " = " + child.text)
